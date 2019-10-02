@@ -4,7 +4,9 @@ The Python code necessary to run models, plot pressure fields, and compare model
 
 ## folder contents:
 
-flow_computations: 
+flow_computations:
+ 
 dip_observations:
+
 dip_comparisons:
 
