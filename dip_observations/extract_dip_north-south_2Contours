@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+lat_min=$1
+lat_max=$2
+dip_depth=$3
+dip_depth_shall=$4
+dip_dir=$5
+smooth=$6
+box_width=$7
+dip_int=$8
+slab2_cont=$9
+out=${10}
+
+slab2_contour=Slab2Distribute_Mar2018/Slab2_CONTOURS/$slab2_cont
+
+rm z0.txt zdeep.txt zshall.txt dips_zdeep.txt age_temp.txt dip_catalogues/$out 2> /dev/null
+
+gawk  -v z=-20.0000 '{if($3==z)print($1,$2)}' $slab2_contour >> z0.txt
+sort -gk 2  z0.txt >>  tmp.txt
+mv tmp.txt z0.txt
+gawk  -v z=$dip_depth '{if($3==z)print($1,$2)}' $slab2_contour >> zdeep.txt
+sort -gk 2  zdeep.txt >>  tmp.txt
+mv tmp.txt zdeep.txt
+gawk  -v z=$dip_depth_shall '{if($3==z)print($1,$2)}' $slab2_contour >> zshall.txt
+sort -gk 2  zshall.txt >>  tmp.txt
+mv tmp.txt zshall.txt
+
+rm dip.txt 2> /dev/null
+python compute_dip_fromSlab2.0Contour_north-south_2Contours.py $lat_min $lat_max z0.txt zdeep.txt zshall.txt  $dip_dir $smooth $box_width $dip_int $dip_depth $dip_depth_shall
+
+mv tmp.txt dip.txt
+sort -gk 2 dip.txt >>  tmp.txt
+rm dip.txt 2> /dev/null
+
+mv tmp_full.txt dip.txt
+sort -gk 2 dip.txt >>  tmp_full.txt
+rm dip.txt 2> /dev/null
+
+mv tmp.txt dip_catalogues/Slab2_two-depths/"$out".txt
+mv tmp_full.txt dip_catalogues/Slab2_two-depths/"$out".full.txt
+
+rm  z0.txt zdeep.txt zshall.txt dips_zdeep.txt age_temp.txt dip.txt 2> /dev/null
