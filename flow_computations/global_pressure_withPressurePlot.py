@@ -3,7 +3,7 @@ import numpy as np
 import time, sys, os
 from functions import readdomains, readgrid, readbounds , outputDP, organizebounds
 from functions import pressurepoints, buildmatrix, outputgrids, buildvector, outputPprof
-from plotting_spherical import plot_pressure_components_MoreVelFields
+from plotting import plot_pressure_components, plot_pressure_simple
 from numpy.linalg import inv
 import xarray as xr
 t1 = time.time()
@@ -49,13 +49,13 @@ else:
 	
 ## plot name given options specified
 if flux_slab == 1:
-	plot_string = ''.join(['plots/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string,'.',str(amu_plot),'_MoreVelFields']);
+	plot_name   = ''.join(['plots/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string,'.plotviscs',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string]);
 elif flux_slab == 2:
-	plot_string = ''.join(['plots/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string,'.',str(amu_plot),'_MoreVelFields']);
+	plot_name   = ''.join(['plots/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string,'.plotvisc',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string]);
 else:
-	plot_string = ''.join(['plots/',plates,'.',str(amu),'noslabflux',tail_flux_string,'.',str(amu_plot),'_MoreVelFields']);
+	plot_name   = ''.join(['plots/',plates,'.',str(amu),'noslabflux',tail_flux_string,'.plotvisc',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'noslabflux',tail_flux_string]);
 
 if not os.path.exists(text_string):
@@ -79,20 +79,10 @@ lono,lato,gam,alpha,vtopl,vtopr,vbotl,vbotr,vt,lon_subslab,lat_subslab,lon_wedge
 		pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ndomain,epslrc,rad_km,alith,shift_edges,polarity,epsdp_fact)
 print "pressure points set up.\n---"
 
-# segment boundaries, and double up wall segments
-n_segs,num_segs,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,polarity,num_wall_segs = \
-	organizebounds(num_bounds,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,dsegtr,dseged,polarity,rad_km,iseg_min)
-print "input done.\n---"
-
-print "setting up pressure inversion points..."
-lono,lato,gam,alpha,vtopl,vtopr,vbotl,vbotr,vt,lon_subslab,lat_subslab,lon_wedge,lat_wedge =  \
-	pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top_lon,pole_top_lat,pole_top_rate,pole_bott_lon, \
-		pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ndomain,epslrc,rad_km,alith,shift_edges,polarity,epsdp_fact)
-print "pressure points set up.\n---"
 
 print "building matrix..."
 pkernel = buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num_segs,coeff1,coeff2,\
-	coefftr1,coefftr2,ndomain,epslit,thresh_dist_wall,taper_length,rad_km,alith,ah1,eps_fact)
+	coefftr1,coefftr2,ndomain,epslit,dsegtr,rad_km,alith,ah1,eps_fact)
 print "matrix built.\n---"
 
 print "building rhs vector..."
@@ -108,12 +98,6 @@ pkernel_inv = inv(pkernel)
 pcoeff = pkernel_inv.dot(vector)
 print "matrix inversion takes %.2fs.\n---" % (time.time() - t2)
 
-print "loading precomputed Pcoeff and DP from %s/" % text_string 
-DP_out= ''.join([text_string,'/DP.txt'])
-Pcoeff_out=''.join([text_string,'/Pcoeff.txt'])
-DP = np.loadtxt((DP_out))
-pcoeff = np.loadtxt((Pcoeff_out))	
-
 print "outputting solution on a grid..."
 press_depth = 330.e3
 P_out,Pwall_out,Pedge_out,dPdlon_out,dPdlat_out,polygon_points,plate_vel_ew,plate_vel_ns,trench_vels,avgvel_asthen_ew,avgvel_asthen_ns, pdrivenvel_wall_ew, pdrivenvel_wall_ns, pdrivenvel_edge_ew, pdrivenvel_edge_ns,lons_out,lats_out,polygons = \
@@ -125,6 +109,12 @@ dip_depth = 330.e3
 DP = outputDP(lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,n_segs,num_segs,pcoeff,rad_km,lon_subslab,\
 	lat_subslab,lon_wedge,lat_wedge,polarity,vtopl,vtopr,vt,dip_depth)
 
+print "saving Pcoeff and DP in %s/" % text_string 
+DP_out= ''.join([text_string,'/DP.txt'])
+np.savetxt(DP_out,DP,fmt='%.6f')
+Pcoeff_out=''.join([text_string,'/Pcoeff.txt'])
+np.savetxt(Pcoeff_out,pcoeff,fmt='%.6f')
+
 # scale pressures and velocities by viscosity for plot
 DP[:,4] = DP[:,4] * (amu_plot/amu)
 P_out = P_out * (amu_plot/amu)
@@ -134,6 +124,5 @@ avgvel_asthen_ew = avgvel_asthen_ew * (amu/amu_plot)
 avgvel_asthen_ns = avgvel_asthen_ns * (amu/amu_plot)
 
 print "plotting..."
-plot_name   = ''.join([plot_string,'.pressure']);
-plot_pressure_components_MoreVelFields(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,lata,lonb,latb,lono,lato,iwall,DP,vt_ew,vt_ns,polygon_points,\
+plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,lata,lonb,latb,lono,lato,iwall,DP,vt_ew,vt_ns,polygon_points,\
 	avgvel_asthen_ew,avgvel_asthen_ns,pdrivenvel_wall_ew, pdrivenvel_wall_ns, pdrivenvel_edge_ew, pdrivenvel_edge_ns,plot_name)

@@ -394,10 +394,9 @@ def pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top
 
 
 def buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num_segs,coeff1,coeff2,\
-	coefftr1,coefftr2,ndomain,epslit,thresh_dist_wall,taper_length,rad_km,alith,ah1,eps_fact):
+	coefftr1,coefftr2,ndomain,epslit,dsegtr,rad_km,alith,ah1,eps_fact):
 
 	pkernel = np.zeros((n_segs,n_segs))
-
 	for iset in range(n_segs):  # segments driving the velocity/pressure field
 
 		lonaa = lona[iset];  lataa = lata[iset]
@@ -423,14 +422,14 @@ def buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num
 				lonobsa, latobsa = project_to_point(lona_rad, lata_rad, obs_azim, len_ratio_lit)			
 				lonobsb, latobsb = project_to_point(lonb_rad, latb_rad, obs_azim, len_ratio_lit)		
 				deriv1 = calcvel_wall(math.degrees(lonobsa),math.degrees(latobsa),math.degrees(lonobsb),math.degrees(latobsb),azimuth,gamma,\
-					lonaa,lataa,lonbb,latbb,gm,alp,iset,thresh_dist_wall,elit,ebig,side,taper_length,rad_km)
+					lonaa,lataa,lonbb,latbb,gm,alp,iset,dsegtr,elit,ebig,side,rad_km)
 
 				# left side of boundary
 				side = 0;	obs_azim = azimuth - (np.pi/2.)
 				lonobsa, latobsa = project_to_point(lona_rad, lata_rad, obs_azim, len_ratio_lit)			
 				lonobsb, latobsb = project_to_point(lonb_rad, latb_rad, obs_azim, len_ratio_lit)	
 				deriv2 = calcvel_wall(math.degrees(lonobsa),math.degrees(latobsa),math.degrees(lonobsb),math.degrees(latobsb),azimuth,gamma,\
-					lonaa,lataa,lonbb,latbb,gm,alp,iset,thresh_dist_wall,elit,ebig,side,taper_length,rad_km)
+					lonaa,lataa,lonbb,latbb,gm,alp,iset,dsegtr,elit,ebig,side,rad_km)
 
 			elif iwall[iset] == 1 or iwall[iset] == 0: 	# edge component
 
@@ -523,7 +522,7 @@ def buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num
 
 	return pkernel
 
-def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb,latbb,gm,alp,iset,thresh_dist_wall,elit,ebig,side,taper_length,rad_km):
+def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb,latbb,gm,alp,iset,dsegtr,elit,ebig,side,rad_km):
 
 	# finds avg vel through lonobsa,latobsa to lonobsb,latobsb due to wall segment from lonaa,lataa to lonbb,latbb.
 	# positive direction is towards the right side of the boundary (a to b)
@@ -532,9 +531,13 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 	lat_mid, lon_mid = midpoint(lataa,lonaa,latbb,lonbb)			   # segment points
 	angle = haversine(lonobs_mid,latobs_mid,lon_mid,lat_mid,rad_km) / rad_km;
 
-	A_seg = 1.; A_pt  = A_seg * (gm/(4. * rad_km * 1.e3))
+	## distance at which to switch between planar and spherical solutions for computing flux at wall (function of segment length)
+	thresh_dist_wall1 = 12.5 * (0.5*dsegtr*1.e3)    # distance at which less than .5% error for segment vs point [m]
+	thresh_dist_wall2 = 1500e3                      # distance at which less than .5% error for plane vs. sphere [m]
+	thresh_dist_wall =  0.5 * (thresh_dist_wall1 + thresh_dist_wall2)  
 
-	if angle * (rad_km * 1.e3) <= (thresh_dist_wall+0.5*taper_length): # segment close by: need plane solution
+	A_seg = 1.; A_pt  = A_seg * (gm/(4. * rad_km * 1.e3))
+	if angle * (rad_km * 1.e3) <= (thresh_dist_wall): # segment close by: need plane solution
 
 		gamma = (1.e3 * haversine(lonobsa,latobsa,lonobsb,latobsb,rad_km))/2.
 
@@ -568,7 +571,7 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 			-1./3.*gm*A_seg*(coshlama-sinhlama)**3*(cossiga**3-3.*cossiga*sinsiga**2)/(2 * gamma) \
 			+1./3.*gm*A_seg*(coshlamb-sinhlamb)**3*(cossigb**3-3.*cossigb*sinsigb**2)/(2 * gamma)
 
-	if angle * (rad_km * 1.e3) >= (thresh_dist_wall-0.5*taper_length): 
+	if angle * (rad_km * 1.e3) > (thresh_dist_wall): 
 
 		len_ratio_close = elit/(rad_km*1.e3)
 		ebig = elit + 1.e3
@@ -591,13 +594,11 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 		else: 			# (left side of boundary)
 			fvel_sphere = (Pclose - Pfar)/(ebig - elit)
 
-	if angle * (rad_km * 1.e3) <= (thresh_dist_wall-0.5*taper_length): 	# pure planar solution
+	if angle * (rad_km * 1.e3) <= (thresh_dist_wall): 	# pure planar solution
 		return fvel_plane
-	elif angle * (rad_km * 1.e3) > (thresh_dist_wall+0.5*taper_length):	# pure spherical solution
+	elif angle * (rad_km * 1.e3) > (thresh_dist_wall):	# pure spherical solution
 		return fvel_sphere
-	else:																# mixed solution
-		blend_factor = ((angle * rad_km * 1.e3) - (thresh_dist_wall - 0.5*taper_length)) / (taper_length)
-		return ( (1.0-blend_factor)*fvel_plane + blend_factor*fvel_sphere)
+
 
 
 def findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km):
@@ -1090,7 +1091,7 @@ def partition_polygon_points(lons,lats,bound_ind,lona,lata,lonb,latb,domain_boun
 					orig_crosses_meridian = 1
 				elif (330 < poly_lons[a+1] <= 360) and (0 < poly_lons[a] <= 30):
 					orig_crosses_meridian = 1
-			print "original segment crosses meridian = %.0f" % orig_crosses_meridian
+			# print "original segment crosses meridian = %.0f" % orig_crosses_meridian
 
 
 			# if meridian crossing happens, try to fix by rotating polygon longitudinally
@@ -1163,7 +1164,7 @@ def partition_polygon_points(lons,lats,bound_ind,lona,lata,lonb,latb,domain_boun
 			if orig_crosses_meridian == 0: 
 				polygon = Polygon(np.column_stack((poly_lons, poly_lats))) # create polygon
 			else:
-				print "polygon %.0f rotated longitudinally by %.0f, latitudinally by %.0f to avoid crosssing meridian" % (k+1,math.degrees(dlon_rad),math.degrees(dlat_rad))
+				# print "polygon %.0f rotated longitudinally by %.0f, latitudinally by %.0f to avoid crosssing meridian" % (k+1,math.degrees(dlon_rad),math.degrees(dlat_rad))
 				polygon = Polygon(np.column_stack((poly_lons_rot, poly_lats_rot)))
 			polygons.append(polygon)
 
