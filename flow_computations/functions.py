@@ -17,6 +17,15 @@ def get_oceanic_buoyancy(age,T0,DT,k,rho0,alpha):
 	B_erf_int=scipy.integrate.simps(y=B_erf, x=z, even='avg') # kg/m2
 	return B_erf_int 
 
+def get_oceanic_buoyancy_wCrust(age,crust_thick,crust_density,T0,DT,k,rho0,alpha):
+
+	T1=T0+DT;    # K
+	z=np.arange(0,400.0,0.5)*1e3 # m
+	T_erf= T1 - DT * scipy.special.erfc(z/(2*np.sqrt(k*age*1e6*365*24*60*60)));
+	B_erf= (T1 - T_erf) * rho0 * alpha; # rho - rho0, kg/m3
+	B_erf_int=scipy.integrate.simps(y=B_erf, x=z, even='avg') + (crust_thick * (crust_density-rho0)) # kg/m2
+	return B_erf_int 
+
 def readdomains(infile):
 	
 	f=open(infile,"r").readlines()

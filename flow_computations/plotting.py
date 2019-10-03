@@ -182,10 +182,10 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=cm.get_cmap('CMRmap_r'),vmin=-80,vmax=0,edgecolors='white',linewidth = 0.25,zorder=3)
 			else:
 				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=cm.get_cmap('CMRmap_r'),vmin=-80,vmax=0,lw = 0,zorder=3)
-			cbar2 = map.colorbar(dps,location='right',pad="23%",size="2%",extend='both')
-			cbar2.set_ticks(np.array([-80,-60,-40,-20, 0]))
-			cbar2.ax.tick_params(labelsize=6)
-			cbar2.set_label("$\Delta$P  [MPa]",size=8)
+	cbar2 = map.colorbar(dps,location='right',pad="23%",size="2%",extend='both')
+	cbar2.set_ticks(np.array([-80,-60,-40,-20, 0]))
+	cbar2.ax.tick_params(labelsize=6)
+	cbar2.set_label("$\Delta$P  [MPa]",size=8)
 
 	# Panel 2: plot Pedge pressure component
 	ax2 = fig.add_subplot(312)

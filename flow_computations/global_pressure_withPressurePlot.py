@@ -49,13 +49,13 @@ else:
 	
 ## plot name given options specified
 if flux_slab == 1:
-	plot_name   = ''.join(['plots/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string,'.plotviscs',str(amu_plot)]);
+	plot_name   = ''.join(['plots/pressure_fields/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string,'.plotviscs',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'ConstFlux_width',str(flux_width),'_v',str(flux_vel_const),'_alpha',str(flux_alpha),tail_flux_string]);
 elif flux_slab == 2:
-	plot_name   = ''.join(['plots/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string,'.plotvisc',str(amu_plot)]);
+	plot_name   = ''.join(['plots/pressure_fields/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string,'.plotvisc',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'_VcSlabFlux_width',str(flux_width),'_alpha',str(flux_alpha),tail_flux_string]);
 else:
-	plot_name   = ''.join(['plots/',plates,'.',str(amu),'noslabflux',tail_flux_string,'.plotvisc',str(amu_plot)]);
+	plot_name   = ''.join(['plots/pressure_fields/',plates,'.',str(amu),'noslabflux',tail_flux_string,'.plotvisc',str(amu_plot)]);
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'noslabflux',tail_flux_string]);
 
 if not os.path.exists(text_string):
