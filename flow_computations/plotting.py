@@ -46,65 +46,6 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
 	return newcmap
 
 
-def plot_pressure_simple(lons_out,lats_out,P_out,Pwall_out,Pedge_out,avgvel_Pdriven_ew,avgvel_Pdriven_ns,avgvel_total_ew,avgvel_total_ns,plate_vel_ew,plate_vel_ns,\
-	trench_vels,pole_top_lon,pole_top_lat,pole_top_rate,lona,lata,lonb,latb,lono,lato,iwall,DP,vt_ew,vt_ns,polygon_points,age_dips,flux_vel,plot_name):
-
-
-	press_plot_name=''.join([plot_name,'.pdf']);
-	press_plot_name_png=''.join([plot_name,'.png']);
-	press_plot_name_eps=''.join([plot_name,'.eps']);
-
-	j_split = 10000;
-	lons_plot = np.zeros((len(lons_out[0,:])))
-	for j in range(0,len(lons_out[0,:])):
-		if lons_out[0,j] > 180.:
-			lons_plot[j] = lons_out[0,j] - 360.
-			if j < j_split:
-				j_split = j
-		else:
-			lons_plot[j] = lons_out[0,j]
-	lons_plot=np.concatenate(( lons_plot[j_split:len(lons_plot)], lons_plot[0:j_split] ), axis=0)
-	lats_plot=lats_out[:,0]		
-
-
-	fig = plt.figure()
-	ax = fig.add_subplot(311)
-	map = Basemap(projection='hammer',lon_0=180,resolution='c')
-	map.drawcoastlines(linewidth=0.3,color='darkgray',zorder=1)
-	x, y = map(lons_out, lats_out)
-	cs = map.contourf(x,y,P_out,levels=np.linspace(-45,45,101),cmap=cm.get_cmap('bwr'),extend="both")
-	cbar2 = map.colorbar(cs,location='right',pad="-6%",size="2%")
-	cbar2.set_ticks(np.array([-40,-20,0,20,40]))
-	cbar2.ax.tick_params(labelsize=6)
-	# plot plate bounds
-	for i in range (0,len(lata)):
-		if iwall[i] == 1:
-
-			if (330 < lona[i] <= 360) and (0 < lonb[i] <= 30):
-				pass;
-			elif (330 < lonb[i] <= 360) and (0 < lona[i] <= 30):
-				pass;
-			else:
-				if np.sqrt(vt_ew[i]**2 + vt_ns[i]**2) < 0.05:
-					map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.8, color='brown')	
-				else:
-					map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.9,color='red')
-		else:
-			if (330 < lona[i] <= 360) and (0 < lonb[i] <= 30):
-				pass;
-			elif (330 < lonb[i] <= 360) and (0 < lona[i] <= 30):
-				pass;
-			else:
-				map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.6,color='black')
-
-	# finalize plot
-	bash_command = ''.join(['convert -density 400 -flatten ',press_plot_name,' ',press_plot_name_png]);
-	plt.savefig(press_plot_name, bbox_inches='tight', format='pdf')
-	plt.savefig(press_plot_name_eps, bbox_inches='tight', format='eps')
-	process = subprocess.Popen(['/bin/bash','-c',bash_command])
-	process.wait()
-
-
 def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,lata,lonb,latb,lono,lato,iwall,DP,vt_ew,vt_ns,polygon_points,\
 	avgvel_asthen_ew,avgvel_asthen_ns,pdrivenvel_wall_ew, pdrivenvel_wall_ns, pdrivenvel_edge_ew, pdrivenvel_edge_ns,plot_name):
 

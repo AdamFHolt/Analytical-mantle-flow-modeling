@@ -1,0 +1,8 @@
+sa spreading aligned and nnr and hs3 
+
+lon lat tangential_azimuth[deg] vE_trench vN_trench vnormal_trench vE_plate vN_plate vnnormal_plate
+
+'{amp=sqrt($4**2+$5**2);print($1,$2,atan2($4,$5)*pif,amp/s)}' to plot psxy -SV style pif=180/pi s  scale
+
+vplate is the negative of the definition in becker and faccenna 
+

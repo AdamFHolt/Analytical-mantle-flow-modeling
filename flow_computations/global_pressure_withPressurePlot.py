@@ -3,7 +3,7 @@ import numpy as np
 import time, sys, os
 from functions import readdomains, readgrid, readbounds , outputDP, organizebounds
 from functions import pressurepoints, buildmatrix, outputgrids, buildvector, outputPprof
-from plotting import plot_pressure_components, plot_pressure_simple
+from plotting import plot_pressure_components
 from numpy.linalg import inv
 import xarray as xr
 t1 = time.time()

@@ -146,5 +146,5 @@ cbar.set_ticks(np.array([0,40,80,120,160,180]))
 cbar.set_label('age, Ma',size=9)
 cbar.ax.tick_params(labelsize=8)
 
-test_plot_name=''.join(['plots/ages_tests/',str(plates),'.pdf'])
+test_plot_name=''.join(['plots/ages_and_boundary_tests/ages/',str(plates),'.pdf'])
 plt.savefig(test_plot_name, bbox_inches='tight', format='pdf')
