@@ -14,13 +14,13 @@ python global_pressure_withPressurePlot.py Slab2.0Final_NoJapTailNoPhil_nnr_FS 3
 
 Therefore, there are 8 parameters that correspond to the following:
 
-$1 = The plate model. The code for the following two files in inputs/, Subfil_{plate model}.inp and Subbon_{plate_model}.inp
-$2 = Asthenosphere viscosity. This viscosity is used to compute the pressure field and resulting DP values.
-$3 = Whether to flux material into the lower mantle: 0 = no fluxing, 1 = flux material with const. velocity at all slabs (50 mm/yr), 2 = flux material at convergence velocity.
-$4 = Flux width: total width of the layers fluxing material into/out of the lower mantle. (Positive value = downward flux, as considered in study).
-$5 = How flux is partitioned between upper and lower plate side of slab: 0 = all flux on overriding plate side, 1 = all on subducting plate side.
-$6 = The name of the grid file located in inputs/, e.g. Subgrid.inp
-$7 = Asthenospheric viscosity for plot. If you want to plot the pressure field using a different viscosity to that which you originally run the model (and output the DP for).
+	$1 = The plate model. The code for the following two files in inputs/, Subfil_{plate model}.inp and Subbon_{plate_model}.inp
+	$2 = Asthenosphere viscosity. This viscosity is used to compute the pressure field and resulting DP values.
+	$3 = Whether to flux material into the lower mantle: 0 = no fluxing, 1 = flux material with const. velocity at all slabs (50 mm/yr), 2 = flux material at convergence velocity.
+	$4 = Flux width: total width of the layers fluxing material into/out of the lower mantle. (Positive value = downward flux, as considered in study).
+	$5 = How flux is partitioned between upper and lower plate side of slab: 0 = all flux on overriding plate side, 1 = all on subducting plate side.
+	$6 = The name of the grid file located in inputs/, e.g. Subgrid.inp
+	$7 = Asthenospheric viscosity for plot. If you want to plot the pressure field using a different viscosity to that which you originally run the model (and output the DP for).
 
 Hence, the above example is a down-flux model with a flux with of 550 km, a flux velocity that is the convergence rate. The scripts outputs the model DP (here, for an asthenospheric viscosity of 3e20 Pas) into text_files/{plate model} and a pressure plot (scaled to an asthenospheric viscosity of 4e20 Pas) into plots/{plate model}
 
@@ -37,10 +37,10 @@ python plot_DipComparison_varyDPfactor.py Slab2.0Final_NoJapTail_nnr_FS 3.0e20 2
 
 Note firstly that the first 7 input parameters need to be the same as those used to run the initial model (see above). The other four parameters correspond to the following:
 
-$8  = subduction index (column 11 of inputs/Subbon_{plate_model}.inp file) of the Pacific subduction zone. (So that the subduction zone can be split into three sections for averaging)
-$9  = subduction index of the S. America subduction zone. (So that the subduction zone can be split into two sections for averaging) 
-$10 = subduction index of any complex subduction zone we want to exclude from the analysis (here, index 4 and 5 correspond to the Solomon and New Hebrides trenches)
-$11 = subduction index of any other complex subduction zone we want to exclude from the analysis (here, index 4 and 5 correspond to the Solomon and New Hebrides trenches)
+	$8  = subduction index (column 11 of inputs/Subbon_{plate_model}.inp file) of the Pacific subduction zone. (So that the subduction zone can be split into three sections for averaging)
+	$9  = subduction index of the S. America subduction zone. (So that the subduction zone can be split into two sections for averaging) 
+	$10 = subduction index of any complex subduction zone we want to exclude from the analysis (here, index 4 and 5 correspond to the Solomon and New Hebrides trenches)
+	$11 = subduction index of any other complex subduction zone we want to exclude from the analysis (here, index 4 and 5 correspond to the Solomon and New Hebrides trenches)
 
 Using the DP file initially outputted by the model run, this script loops through a range of viscosities, searches for the one that gives the best fit (lowest RMS misfit) between model and observed dips, and places a observed-modeled dip comparison plot for this viscosity into plots/dip_comparisons 
 
