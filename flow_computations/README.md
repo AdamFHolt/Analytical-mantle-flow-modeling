@@ -4,9 +4,7 @@
 
 The main driver script is global_pressure_withPressurePlot.py, which computes pressure for an input plate and slab model (location in inputs/) and plots the pressure field (into plots/). 
 
-Inside inputs/ are the slab geometries (see end of README for file structure details).  For example, the reference model geometry is 'Slab2.0FinalNo_JapTail_nnr_FS' and so there are two files corresponding to this model. Subbon_Slab2.0Final_NoJapTail_nnr_FS.inp, which contains the plate boundary geometry (and slab wall velocities) and Subbon_Slab2.0Final_NoJapTail_nnr_FS.inp, which contains the plate domain boundary conditions (e.g. the plate velocities). One can run "./plot_boundary_locations.py Slab2.0FinalNo_JapTail_nnr_FS" to check/plot the plate boundaries of this particular file.
-
-In addition to these geometry files, a Subgrd* file is required, which contains the boundary segment lengths and the interval over which to grid the pressure field for output. 
+Inside inputs/ are the slab geometries (see end of README for file structure details).  For example, the reference model geometry is 'Slab2.0FinalNo_JapTail_nnr_FS' and so there are two files corresponding to this model. Subbon_Slab2.0Final_NoJapTail_nnr_FS.inp, which contains the plate boundary geometry (and slab wall velocities) and Subbon_Slab2.0Final_NoJapTail_nnr_FS.inp, which contains the plate domain boundary conditions (e.g. the plate velocities). One can run "./plot_boundary_locations.py Slab2.0FinalNo_JapTail_nnr_FS" to check/plot the plate boundaries of this particular file. In addition to these geometry files, a Subgrd* file is required, which contains the boundary segment lengths and the interval over which to grid the pressure field for output. See the last section of this README for specific details about the structure of these three types of input files. 
 
 As an example, to run a model using this reference geometry, make a plot of the pressure and velocity field, and calculate the pressure discontinuity (DP) at all slab walls, one would execute:
 
