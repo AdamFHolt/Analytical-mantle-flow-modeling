@@ -79,8 +79,8 @@ Plate domain file (e.g. Subfil_Slab2.0Final_NoJapTail_nnr_FS.inp):
 	col. 6 = If lower boundary velocity prescribed (e.g. slab tail): Latiude of Euler pole
 	col. 7 = If lower boundary velocity prescribed (e.g. slab tail): Rotation rate of Euler pole [degrees/Myr]
 	col. 8 = Index of domain (i.e. what is specified in columns 6 and 7 of boundary file) 
-	col. 8 = Comma-separated list of the indices of the boundary segments that encircle the domain. These can be listed in either clock- or anti-clockwise direction, but need to be in the correct order.
-	col. 9 = Name of the domain, e.g. India. (Just for book-keeping)
+	col. 9 = Comma-separated list of the indices of the boundary segments that encircle the domain. These can be listed in either clock- or anti-clockwise direction, but need to be in the correct order.
+	col. 10 = Name of the domain, e.g. India. (Just for book-keeping)
 
 	Different domain options (i.e. what is entered into col. 1):
 
