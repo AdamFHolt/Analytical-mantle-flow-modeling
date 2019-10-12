@@ -355,7 +355,7 @@ def pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top
 			# 200:	fixed plate, fixed slab tail
 			# 300:	fixed plate, fixed base
 			# 400:	fixed plate, free slab stail
-			# 500:  fixed plate, free base (fixed plate velocity for microplates)
+			# 500:  fixed plate, free base (i.e. fixed plate velocity for microplates, not used in paper)
 
 			# on left side
 			if idleft != 0:
@@ -496,7 +496,7 @@ def buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num
 			# 200:	fixed plate, fixed slab tail
 			# 300:	fixed plate, fixed base
 			# 400:	fixed plate, free slab stail
-			# 500:  fixed plate, free base (fixed plate velocity for microplates)
+			# 500:  fixed plate, free base (fixed plate velocity for microplates, not used in paper)
 			# ~~~~~~~~~~~~~~~~~~~~~~~
 
 			# idr: right side of boundary
@@ -531,6 +531,7 @@ def buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num
 
 	return pkernel
 
+
 def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb,latbb,gm,alp,iset,dsegtr,elit,ebig,side,rad_km):
 
 	# finds avg vel through lonobsa,latobsa to lonobsb,latobsb due to wall segment from lonaa,lataa to lonbb,latbb.
@@ -546,6 +547,7 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 	thresh_dist_wall =  0.5 * (thresh_dist_wall1 + thresh_dist_wall2)  
 
 	A_seg = 1.; A_pt  = A_seg * (gm/(4. * rad_km * 1.e3))
+
 	if angle * (rad_km * 1.e3) <= (thresh_dist_wall): # segment close by: need plane solution
 
 		gamma = (1.e3 * haversine(lonobsa,latobsa,lonobsb,latobsb,rad_km))/2.
@@ -580,7 +582,7 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 			-1./3.*gm*A_seg*(coshlama-sinhlama)**3*(cossiga**3-3.*cossiga*sinsiga**2)/(2 * gamma) \
 			+1./3.*gm*A_seg*(coshlamb-sinhlamb)**3*(cossigb**3-3.*cossigb*sinsigb**2)/(2 * gamma)
 
-	if angle * (rad_km * 1.e3) > (thresh_dist_wall): 
+	if angle * (rad_km * 1.e3) > (thresh_dist_wall): # segment far away: calculately flux using the pressures (dP/dx)
 
 		len_ratio_close = elit/(rad_km*1.e3)
 		ebig = elit + 1.e3
@@ -607,7 +609,6 @@ def calcvel_wall(lonobsa,latobsa,lonobsb,latobsb,azimuth,gamma,lonaa,lataa,lonbb
 		return fvel_plane
 	elif angle * (rad_km * 1.e3) > (thresh_dist_wall):	# pure spherical solution
 		return fvel_sphere
-
 
 
 def findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km):
@@ -653,53 +654,6 @@ def findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km):
 	return (P_plane - P_xy + P_sphere)
 
 
-# def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
-
-# 	(latmid,lonmid) = midpoint(lataa,lonaa,latbb,lonbb);
-# 	lonobs_rad = math.radians(lonobs); latobs_rad = math.radians(latobs)
-# 	lonmid_rad = math.radians(lonmid); latmid_rad = math.radians(latmid)
-# 	dist = haversine(lonmid,latmid,lonobs,latobs,rad_km)
-# 	angle =  dist / rad_km; 
-# 	rad = rad_km * 1e3
-
-# 	A_seg = 1.0;
-# 	A_pt = (-1.0*A_seg*gm)/np.pi
-# 	shift_pt = ((-2.0*A_seg*gm)/(np.pi))*(1.0 + np.log(rad*np.sqrt(2.)/gm)) # see "shift-for-pedge" document 
-# 	Ppt_avg = A_pt *  (np.log(2) - 1) + shift_pt 	# average pressure 
-
-# 	# Pplane
-# 	dista = haversine(lonaa,lataa,lonobs,latobs,rad_km) * 1.e3; 
-# 	distb = haversine(lonbb,latbb,lonobs,latobs,rad_km) * 1.e3; 
-# 	coshlam = (.5/gm) * (dista + distb)
-# 	sinhlam = np.sqrt(coshlam**2 - 1.)
-
-# 	cossig = (.5/gm) * (dista - distb)
-# 	if cossig > 1.:
-# 		cossig = 1.;
-# 	elif cossig < -1.:
-# 		cossig = -1;
-# 	sinsig = np.sqrt(1. - (cossig**2))
-# 	xf = gm * coshlam * cossig; 
-# 	yf = gm * sinhlam * sinsig;
-# 	if yf == 0: yf = gm * 1.e-10
-# 	x = xf/gm; y = yf/gm;
-
-# 	# below, additional (last) term to make Laplacian = 0
-# 	P_plane = ((A_seg * gm)/np.pi) * (  y*(np.arctan((x-1)/y)-np.arctan((x+1)/y)) + (.5*(x-1))*np.log(((x-1)**2 + y**2)) - (.5*(x+1))*np.log(((x+1)**2 + y**2)) ) - (((A_pt*angle**2))/4.) 
-# 	P_plane = P_plane - Ppt_avg  # first , second to make average P = 0
-
-# 	# Ppt, sphere
-# 	if np.cos(angle) == 1.0:
-# 		angle = 1e-10
-# 	P_sphere = A_pt * np.log((1.0 - np.cos(angle))) 
-# 	P_sphere = P_sphere + shift_pt - Ppt_avg
-
-# 	# Ppt, plane
-# 	P_xy = 2 * A_pt *  (np.log(angle) - np.log(np.sqrt(2.))) - (((A_pt*angle**2))/4.)
-# 	P_xy = P_xy  + shift_pt - Ppt_avg
-
-# 	return (P_plane - P_xy + P_sphere)
-
 def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
 
 	(latmid,lonmid) = midpoint(lataa,lonaa,latbb,lonbb);
@@ -709,10 +663,9 @@ def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
 	angle =  dist / rad_km; 
 	rad = rad_km * 1e3
 
-	A_seg = 1.0;
-	A_pt = (-1.0*A_seg*gm)/np.pi
-	shift_pt = ((-2.0*A_seg*gm)/(np.pi))*(1.0 + np.log(rad*np.sqrt(2.)/gm)) # see "shift-for-pedge" document 
-	Ppt_avg = A_pt *  (np.log(2) - 1) # average pressure 
+	A_pt = (-1.0*gm)/np.pi
+	shift_pt = ((-2.0*gm)/(np.pi))*(1.0 + np.log(rad*np.sqrt(2.)/gm)) # see "shift-for-pedge" document 
+	Ppt_avg = A_pt *  (np.log(2) - 1) # average pressure over sphere (remove to give avg = 0)
 
 	# Pplane
 	dista = haversine(lonaa,lataa,lonobs,latobs,rad_km) * 1.e3; 
@@ -731,7 +684,7 @@ def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
 	if yf == 0: yf = gm * 1.e-10
 	x = xf/gm; y = yf/gm;
 
-	P_plane = ((A_seg * gm)/np.pi) * (  y*(np.arctan((x-1)/y)-np.arctan((x+1)/y)) + (.5*(x-1))*np.log(((x-1)**2 + y**2)) - (.5*(x+1))*np.log(((x+1)**2 + y**2)) ) 
+	P_plane = (gm/np.pi) * (  y*(np.arctan((x-1)/y)-np.arctan((x+1)/y)) + (.5*(x-1))*np.log(((x-1)**2 + y**2)) - (.5*(x+1))*np.log(((x+1)**2 + y**2)) ) 
 	P_plane = P_plane - (((A_pt*angle**2))/4.) # additional term to force Laplacian = 0
 	P_plane = P_plane - shift_pt
 
@@ -773,7 +726,7 @@ def buildvector(iwall,alpha,ndomain,idl,idr,vtopl,vtopr,vbotl,vbotr,vt,n_segs,nu
 		# 200:	fixed plate, fixed slab tail
 		# 300:	fixed plate, fixed base
 		# 400:	fixed plate, free slab stail
-		# 500:  fixed plate, free base (fixed plate velocity for microplates)
+		# 500:  fixed plate, free base (fixed plate velocity for microplates, not used in paper)
 
 		# slabs walls and fill vector
 		if iwall[jobs] == 1:
@@ -1002,7 +955,7 @@ def outputgrids(spacing,lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,amu,a,n_se
 	# 200:	fixed plate, fixed slab tail
 	# 300:	fixed plate, fixed base
 	# 400:	fixed plate, free slab stail
-	# 500:  fixed plate, free base (fixed plate velocity for microplates)
+	# 500:  fixed plate, free base (fixed plate velocity for microplates, not used in paper)
 
 	# average asthenospheric velocities 
 	vel_convert = 100.*60.*60.*24.*365.
@@ -1037,7 +990,6 @@ def outputgrids(spacing,lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,amu,a,n_se
 				pdrivenvel_wall_ns[i,j] = (-1. * dPwalldlat_grd[i,j] * 1e3) * (coeff/12) * (1.0+(asth_thick/(rad_km))) * vel_convert
 				pdrivenvel_edge_ew[i,j] = (-1. * dPedgedlon_grd[i,j] * 1e3) * (coeff/12) * (1.0+(asth_thick/(rad_km))) * vel_convert
 				pdrivenvel_edge_ns[i,j] = (-1. * dPedgedlat_grd[i,j] * 1e3) * (coeff/12) * (1.0+(asth_thick/(rad_km))) * vel_convert    
-
 
 	# calculate trench velocites (for potential plotting)
 	trench_vels = np.empty((0,4), float); num = 0
@@ -1251,60 +1203,3 @@ def outputDP(lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,n_segs,num_segs,pcoef
 			DP[i,6] = vt[i] * (1./vel_term)
 
 	return DP
-
-def outputPprof(prof_spacing,lon1,lat1,lon2,lat2,lona,lata,lonb,latb,gam,alpha,ah1,alith,amu,n_segs,num_segs,pcoeff,rad_km):
-
-
-	# get points along profiles
-	length_km = haversine(lon1,lat1,lon2,lat2,rad_km)
-	length_deg = np.rad2deg(length_km/rad_km)
-	iprof = int(.999 * length_deg/prof_spacing) + 1
-	geod = Geodesic(rad_km * 1e3, 0) # sphere
-	gd = geod.Inverse(lat1, lon1, lat2, lon2) # total great-circle distance
-	line = geod.Line(gd['lat1'], gd['lon1'], gd['azi1'])
-
-	P_prof = np.zeros((iprof,4))
-	coords = np.zeros((iprof,3))
-	for iset in range(0,iprof):
-		pointa = line.Position((gd['s12'] / iprof) * iset)
-		lona2 = pointa['lon2']
-		if lona2 < 0.:
-			lona2 = 360. + lona2
-		coords[iset,0] = lona2
-		coords[iset,1] = pointa['lat2']
-
-	for i in range(len(coords)-1):
-		dist = haversine(coords[i,0],coords[i,1],coords[i+1,0],coords[i+1,1],rad_km)
-		coords[i+1,2] = coords[i,2] + dist
-
-	### PRESSURES
-	for i in range(len(coords)):
-
-		lonobs = coords[i,0]
-		latobs = coords[i,1]
-		P_prof[i,0] = coords[i,2]
-
-		sumpress = 0.
-		sumpress_wall = 0.
-		sumpress_edge = 0.
-		for iset in range(n_segs):
-			lonaa = lona[iset]
-			lataa = lata[iset]
-			lonbb = lonb[iset]
-			latbb = latb[iset]
-			gm  = gam[iset]
-			alp = alpha[iset]
-
-			if iset >= num_segs:	
-				sumpress = sumpress + findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km) * pcoeff[iset]
-				sumpress_wall = sumpress_wall + findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km) * pcoeff[iset]
-			else:
-				sumpress = sumpress + findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km) * pcoeff[iset]
-				sumpress_edge = sumpress_edge + findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km) * pcoeff[iset]
-
-		P_prof[i,1] = sumpress/1.e6
-		P_prof[i,2] = sumpress_wall/1.e6
-		P_prof[i,3] = sumpress_edge/1.e6
-
-	
-	return P_prof
