@@ -2,7 +2,7 @@
 
 The Python code necessary to run models, plot pressure fields, and compare modeled and 'observed' dips
 
-### folder contents:
+#### Folder contents:
 
 **dip_observations:** Use Slab2 (Hayes et al.) to derive the dip 'observation' catalogue used in Holt and Royden (2020).
 
@@ -10,7 +10,7 @@ The Python code necessary to run models, plot pressure fields, and compare model
 
 *See README inside individual folders for more details*
  
-### References
+#### References
 
 Holt, A. F., and Royden, L. H., 2020. Subduction dynamics and mantle pressure: (ii) Towards a Global Understanding of Slab Dip and Upper Mantle Circulation. Geochem., Geophys., Geosys., doi: 10.1029/2019GC008771. 
 
