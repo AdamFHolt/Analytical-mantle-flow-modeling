@@ -2,7 +2,7 @@
 
 Requirements: GMT, Python, plotting and geographic Python modules (see first few lines of .py scripts).
 
-In order to re-compute the dip angle 'observations' in Holt and Royden (2019), run the following wrapper scripts:
+In order to re-compute the dip angle 'observations' in Holt and Royden (2020), run the following wrapper scripts:
 
 	./many_dip_extractions_2Contours.sh
 	./many_dip_extractions.sh
