@@ -1,4 +1,4 @@
-### Analytical computation of subduction-driven flow in a spherical shell
+### Analytical computations of subduction-driven flow in a spherical shell (i.e., Earth's mantle):
 
 The Python code necessary to run models, plot pressure fields, and compare modeled and 'observed' dips
 
