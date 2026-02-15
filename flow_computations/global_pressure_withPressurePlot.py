@@ -6,7 +6,7 @@ from functions import pressurepoints, buildmatrix, outputgrids, buildvector
 from plotting import plot_pressure_components
 from numpy.linalg import inv
 import xarray as xr
-t1 = time.time()
+t0_total = time.perf_counter()
 
 ## command line args
 plates=str(sys.argv[1])	            		# name of plate model (to read Subbon* and Subfil* files) 
@@ -62,6 +62,7 @@ if not os.path.exists(text_string):
 	os.mkdir(text_string)
 
 print("reading input and segmenting boundaries...")
+t_stage = time.perf_counter()
 ndomain, pole_top_lon, pole_top_lat, pole_top_rate, pole_bott_lon, pole_bott_lat, pole_bott_rate, rigid_vew, rigid_vns, domain_bounds  = readdomains(infile_domains)
 grid_spacing, prof_spacing, dsegtr, dseged = readgrid(infile_grid) 
 
@@ -72,48 +73,61 @@ num_bounds,iwall,lona,lata,lonb,latb,bound_ind,idl,idr,vt_ew,vt_ns,polarity,larg
 n_segs,num_segs,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,polarity,num_wall_segs = \
 	organizebounds(num_bounds,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,dsegtr,dseged,polarity,rad_km,iseg_min)
 print("input done.\n---")
+print("timing: input + segmentation = %.2fs\n---" % (time.perf_counter() - t_stage))
 
 print("setting up pressure inversion points...")
+t_stage = time.perf_counter()
 lono,lato,gam,alpha,vtopl,vtopr,vbotl,vbotr,vt,lon_subslab,lat_subslab,lon_wedge,lat_wedge =  \
 	pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top_lon,pole_top_lat,pole_top_rate,pole_bott_lon, \
 		pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ndomain,epslrc,rad_km,alith,shift_edges,polarity,epsdp_fact)
 print("pressure points set up.\n---")
+print("timing: pressure point setup = %.2fs\n---" % (time.perf_counter() - t_stage))
 
 
 print("building matrix...")
+t_stage = time.perf_counter()
 pkernel = buildmatrix(lona,lata,lonb,latb,gam,alpha,lono,lato,iwall,idl,idr,n_segs,num_segs,coeff1,coeff2,\
 	coefftr1,coefftr2,ndomain,epslit,dsegtr,rad_km,alith,ah1,eps_fact)
 print("matrix built.\n---")
+print("timing: matrix build = %.2fs\n---" % (time.perf_counter() - t_stage))
 
 print("building rhs vector...")
+t_stage = time.perf_counter()
 vector = buildvector(iwall,alpha,ndomain,idl,idr,vtopl,vtopr,vbotl,vbotr,vt,n_segs,num_segs,\
 	flux_slab,flux_vel_const,flux_width,polarity,flux_alpha,no_flux_for_slabtails,rad_km,alith,ah1)
 
 print("rhs vector built.\n---") 
-print("setup takes %.2fs.\n---" % (time.time() - t1))
+print("timing: rhs build = %.2fs\n---" % (time.perf_counter() - t_stage))
+print("timing: total setup (pre-inversion) = %.2fs.\n---" % (time.perf_counter() - t0_total))
 
 print("inverting matrix...")
-t2 = time.time()
+t_stage = time.perf_counter()
 pkernel_inv = inv(pkernel)
 pcoeff = pkernel_inv.dot(vector)
-print("matrix inversion takes %.2fs.\n---" % (time.time() - t2))
+print("matrix inversion takes %.2fs.\n---" % (time.perf_counter() - t_stage))
 
 print("outputting solution on a grid...")
+t_stage = time.perf_counter()
 press_depth = 330.e3
 P_out,Pwall_out,Pedge_out,dPdlon_out,dPdlat_out,polygon_points,plate_vel_ew,plate_vel_ns,trench_vels,avgvel_asthen_ew,avgvel_asthen_ns, pdrivenvel_wall_ew, pdrivenvel_wall_ns, pdrivenvel_edge_ew, pdrivenvel_edge_ns,lons_out,lats_out,polygons = \
 	outputgrids(grid_spacing,lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,amu,ah1-alith,n_segs,num_segs,pcoeff,rad_km,domain_bounds,bound_ind,pole_top_lon,pole_top_lat,\
 		pole_top_rate,vt_ew,vt_ns,alith,press_depth,coefftr1,coefftr2,pole_bott_lon,pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ah1,ndomain)
+print("timing: grid output = %.2fs (spacing=%.2f deg)\n---" % (time.perf_counter() - t_stage, grid_spacing))
 
 print("outputting across-slab DP...")
+t_stage = time.perf_counter()
 dip_depth = 330.e3
 DP = outputDP(lona,lata,lonb,latb,lono,lato,iwall,gam,alpha,n_segs,num_segs,pcoeff,rad_km,lon_subslab,\
 	lat_subslab,lon_wedge,lat_wedge,polarity,vtopl,vtopr,vt,dip_depth)
+print("timing: DP output = %.2fs\n---" % (time.perf_counter() - t_stage))
 
 print("saving Pcoeff and DP in %s/" % text_string) 
+t_stage = time.perf_counter()
 DP_out= ''.join([text_string,'/DP.txt'])
 np.savetxt(DP_out,DP,fmt='%.6f')
 Pcoeff_out=''.join([text_string,'/Pcoeff.txt'])
 np.savetxt(Pcoeff_out,pcoeff,fmt='%.6f')
+print("timing: save outputs = %.2fs\n---" % (time.perf_counter() - t_stage))
 
 # scale pressures and velocities by viscosity for plot
 DP[:,4] = DP[:,4] * (amu_plot/amu)
@@ -124,5 +138,8 @@ avgvel_asthen_ew = avgvel_asthen_ew * (amu/amu_plot)
 avgvel_asthen_ns = avgvel_asthen_ns * (amu/amu_plot)
 
 print("plotting...")
+t_stage = time.perf_counter()
 plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,lata,lonb,latb,lono,lato,iwall,DP,vt_ew,vt_ns,polygon_points,\
 	avgvel_asthen_ew,avgvel_asthen_ns,pdrivenvel_wall_ew, pdrivenvel_wall_ns, pdrivenvel_edge_ew, pdrivenvel_edge_ns,plot_name)
+print("timing: plotting = %.2fs\n---" % (time.perf_counter() - t_stage))
+print("timing: total runtime = %.2fs\n---" % (time.perf_counter() - t0_total))

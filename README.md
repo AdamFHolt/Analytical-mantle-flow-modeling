@@ -32,6 +32,7 @@ Use `notebooks/workflow_examples.ipynb`.
 
 - `RUN_HEAVY = False`: use shipped precomputed outputs.
 - `RUN_HEAVY = True`: rerun model scripts and regenerate outputs.
+- Heavy runs in the notebook use `flow_computations/inputs/Subgrd_Fast.inp` (coarser output grid) for faster execution.
 
 ### CLI driver
 
@@ -44,6 +45,7 @@ From repository root:
 
 - `quick`: validates required precomputed artifacts.
 - `full`: runs pressure, age, and dip-comparison pipeline.
+- `full` uses `Subgrd_Fast.inp` for faster runtime.
 
 ## Core scripts (manual run)
 
@@ -52,7 +54,7 @@ Run from `flow_computations/`.
 ### 1) Pressure and DP computation
 
 ```bash
-python global_pressure_withPressurePlot.py Slab2.0Final_NoJapTailNoPhil_nnr_FS 3.0e20 2 550e3 0 1 Subgrd.inp 4.0e20
+python global_pressure_withPressurePlot.py Slab2.0Final_NoJapTailNoPhil_nnr_FS 3.0e20 2 550e3 0 1 Subgrd_Fast.inp 4.0e20
 ```
 
 Arguments:
@@ -63,7 +65,7 @@ Arguments:
 4. Flux width (m)
 5. Flux partition (`0` overriding-plate side, `1` subducting-plate side)
 6. `no_flux_for_slabtails` (`0` allow, `1` suppress)
-7. Grid file in `inputs/` (e.g., `Subgrd.inp`)
+7. Grid file in `inputs/` (e.g., `Subgrd_Fast.inp` for speed or `Subgrd.inp` for denser output)
 8. Plot viscosity scale (Pa s)
 
 ### 2) Subducting-plate ages
@@ -75,7 +77,7 @@ Arguments:
 ### 3) Modeled vs observed dip comparison
 
 ```bash
-python plot_DipComparison_varyDPfactor.py Slab2.0Final_NoJapTail_nnr_FS 3.0e20 2 500e3 0 1 Subgrd.inp 2 12 4 5
+python plot_DipComparison_varyDPfactor.py Slab2.0Final_NoJapTail_nnr_FS 3.0e20 2 500e3 0 1 Subgrd_Fast.inp 2 12 4 5
 ```
 
 By default this uses:
