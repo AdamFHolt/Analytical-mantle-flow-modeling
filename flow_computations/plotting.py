@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 from mpl_toolkits.basemap import Basemap
 import matplotlib
 matplotlib.use('Agg')
@@ -71,11 +71,11 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
 
 	# Panel 1: plot full pressure
-	x, y = map(lons_out, lats_out)
+	x, y = list(map(lons_out, lats_out))
 	cs = map.contourf(x,y,P_out,levels=np.linspace(-60,60,121),cmap=cm.get_cmap('bwr'),extend="both")
-        cbar1 = map.colorbar(cs,location='right',pad="-6%",size="2%")
+	cbar1 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar1.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
-        cbar1.ax.tick_params(labelsize=6)
+	cbar1.ax.tick_params(labelsize=6)
 	# plot plate bounds
 	for i in range (0,len(lata)):
 		if iwall[i] == 1:
@@ -118,7 +118,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	DP_walls = -1.0 * DP[:,4][wall_inds]
 	for j in range(0,len(lono)):
 		if np.sqrt(vt_ew_temp[j]**2 + vt_ns_temp[j]**2) > 0.05:
-			xo, yo = map(lono[j],lato[j])
+			xo, yo = list(map(lono[j],lato[j]))
 			if DP_walls[j] > 0:
 				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=cm.get_cmap('CMRmap_r'),vmin=-80,vmax=0,edgecolors='white',linewidth = 0.25,zorder=3)
 			else:

@@ -115,7 +115,7 @@ def readbounds(infile):
 
 def haversine(lon1, lat1, lon2, lat2, rad_km):
 	#Great circle distance (km's) between two points (given in degrees)
-	lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+	lon1, lat1, lon2, lat2 = list(map(math.radians, [lon1, lat1, lon2, lat2]))
 	dlon = lon2 - lon1 
 	dlat = lat2 - lat1 
 	a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
@@ -152,13 +152,13 @@ def organizebounds(num_bounds,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_
 	large_wall_inds_temp = [];
 
 	num_segs = 0; num_wall_segs = 0
-	print "------------------------"
-	print "%.0f original boundaries" % num_bounds
+	print("------------------------")
+	print("%.0f original boundaries" % num_bounds)
 	for i in range(num_bounds):
 
 		# great circle distance [km]
 		length = haversine(lona[i],lata[i],lonb[i],latb[i],rad_km)
-		print "orig. length of segment %.0f = %.8f km" % (i+1,length)
+		print("orig. length of segment %.0f = %.8f km" % (i+1,length))
 		if iwall[i] == 1:
 			iseg = int(.999 * length/dsegtr) + 1
 		elif (idl[i] != idr[i]) and iwall[i] == 0:

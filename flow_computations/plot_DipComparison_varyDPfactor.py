@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 from mpl_toolkits.basemap import Basemap
 import matplotlib
@@ -46,11 +46,18 @@ Pac_northbound_lat=44
 Pac_southbound_lat=32
 SAm_bound_lat=-17
 
-infile_grid='inputs/Subgrd.inp' 
 infile_bounds  =''.join(['inputs/Subbon_',plates,'.inp']);
 infile_domains  =''.join(['inputs/Subfil_',plates,'.inp']);
+infile_grid    =''.join(['inputs/',infile_grid]);
 
-dips_obs_txt = '/home/aholt/Dropbox/Analytical/python/sphere/forward_flux_tests/calculate_dips/dips_from_slab2.0/AllDips.with_penetration.txt'
+# Default to the observed dip catalogue distributed in this repository.
+# Can be overridden with DIPS_OBS_TXT=/path/to/AllDips.txt
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+default_dips_obs = os.path.join(repo_root, 'dip_observations', 'dip_catalogues', 'Slab2_const-depth', 'AllDips.txt')
+dips_obs_txt = os.environ.get('DIPS_OBS_TXT', default_dips_obs)
+if os.path.isfile(dips_obs_txt) == False:
+	raise IOError("Could not find observed dip catalogue: %s" % dips_obs_txt)
+
 sp_ages_name = ''.join(['ages/',str(plates),'.txt'])
 sp_ages = np.loadtxt(sp_ages_name)
 
@@ -68,7 +75,7 @@ else:
 	text_string = ''.join(['text_files/',plates,'.',str(amu),'noslabflux',tail_flux_string]);
 DPs_name = ''.join([text_string,'/DP.txt'])
 
-print "reading input and segmenting boundaries..."
+print("reading input and segmenting boundaries...")
 ndomain, pole_top_lon, pole_top_lat, pole_top_rate, pole_bott_lon, pole_bott_lat, pole_bott_rate, rigid_vew, rigid_vns, domain_bounds  = readdomains(infile_domains)
 
 grid_spacing, prof_spacing, dsegtr, dseged = readgrid(infile_grid) 
@@ -82,7 +89,7 @@ lono,lato,gam,alpha,vtopl,vtopr,vbotl,vbotr,vt,lon_subslab,lat_subslab,lon_wedge
 	pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top_lon,pole_top_lat,pole_top_rate,pole_bott_lon, \
 		pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ndomain,epslrc,rad_km,alith,shift_edges,polarity,epsdp_fact)
 
-print "reading in and organizing slab DP values"
+print("reading in and organizing slab DP values")
 DPs_mod = np.loadtxt(DPs_name)
 dips_obs_tmp = np.loadtxt(dips_obs_txt) 	
 num_obs = len(dips_obs_tmp)
@@ -212,7 +219,7 @@ for i in range(len(synthetic_dips)):
 
 
 
-print "searching for best viscosity..."
+print("searching for best viscosity...")
 num_subd_zones = int(np.amax(synthetic_dips[:,4]))
 rms_lowest = 100.;
 visc_min = 18.5;	visc_max = 21.5
@@ -283,8 +290,8 @@ for f in range(len(dip_averages)):
 rms_avg = round(np.sqrt(rms_sum_avg/n_avg),2)
 mean_avg = round(mean_sum_avg/n_avg,2)
 
-print "best dip match (%.2f) for a pressure factor of %.4f (%.2f)" % (rms_lowest,best_factor,np.log10(amu*best_factor))
-print "best avg dip match (%.2f) for a pressure factor of %.4f (%.2f)" % (rms_avg,best_factor,np.log10(amu*best_factor))
+print("best dip match (%.2f) for a pressure factor of %.4f (%.2f)" % (rms_lowest,best_factor,np.log10(amu*best_factor)))
+print("best avg dip match (%.2f) for a pressure factor of %.4f (%.2f)" % (rms_avg,best_factor,np.log10(amu*best_factor)))
 
 best_factor_rounded = str(round(best_factor, 3))
 plot_name = ''.join(['plots/dip_comparisons/',plot_string,'.fact',str(best_factor_rounded),'.pdf'])
@@ -323,7 +330,7 @@ for j in range(num_good_subds):
 			x = dips_obs[k,0]
 			y = dips_obs[k,1]
 			dip_point = dips_obs[k,2]
-			xo, yo = map(x,y)
+			xo, yo = list(map(x,y))
 			dips_plot = map.scatter(xo, yo, c=dip_point,s=20,cmap=cm.get_cmap('inferno'),vmin=30,vmax=90,edgecolor='black',linewidth=0.2,zorder=2)
 
 cbar = map.colorbar(dips_plot,location='bottom',pad="5%",size="4%")
@@ -362,7 +369,7 @@ for j in range(num_good_subds):
 		if original_segment_order[k] == j:
 			x = synthetic_dips[k,0]
 			y = synthetic_dips[k,1]
-			xo, yo = map(x,y)
+			xo, yo = list(map(x,y))
 			if seg_dist[k] < 300 and np.isnan(best_dips[k]) == 0: 
 				if is_trench_fixed[k] == 0:  
 					if best_dips[k] > 90:
@@ -413,13 +420,13 @@ for i in range (0,len(lata)):
 # plot misfits
 for k in range(num_good_subds):
 	for j in range(num_good_subds):
-		if original_segment_order[j] == k:
-			xo, yo = map(synthetic_dips[j,0],synthetic_dips[j,1]) 
-			if seg_dist[j] < 300 and np.isnan(best_dips[j]) == 0 and is_trench_fixed[j] == 0: 
-		            if best_dips[j] > 90:
-		                misfits_plot = map.scatter(xo, yo, c=best_dips[j] - dips_obs[j,2],s=20,cmap='RdBu',vmin=-40,vmax=40,linewidth=0.2,edgecolor='red',zorder=2)
-		            else:
-		                misfits_plot = map.scatter(xo, yo, c=best_dips[j] - dips_obs[j,2],s=20,cmap='RdBu',vmin=-40,vmax=40,linewidth=0.2,edgecolor='black',zorder=2)
+			if original_segment_order[j] == k:
+				xo, yo = list(map(synthetic_dips[j,0],synthetic_dips[j,1])) 
+				if seg_dist[j] < 300 and np.isnan(best_dips[j]) == 0 and is_trench_fixed[j] == 0: 
+					if best_dips[j] > 90:
+						misfits_plot = map.scatter(xo, yo, c=best_dips[j] - dips_obs[j,2],s=20,cmap='RdBu',vmin=-40,vmax=40,linewidth=0.2,edgecolor='red',zorder=2)
+					else:
+						misfits_plot = map.scatter(xo, yo, c=best_dips[j] - dips_obs[j,2],s=20,cmap='RdBu',vmin=-40,vmax=40,linewidth=0.2,edgecolor='black',zorder=2)
 			elif seg_dist[j] < 300 and np.isnan(best_dips[j]) == 1 and is_trench_fixed[j] == 0:
 				pass
 
@@ -515,4 +522,3 @@ bash_command = ''.join(['convert -density 400 -flatten ',plot_name,' ',plot_name
 plt.savefig(plot_name, bbox_inches='tight', format='pdf')
 process = subprocess.Popen(['/bin/bash','-c',bash_command])
 process.wait()
-

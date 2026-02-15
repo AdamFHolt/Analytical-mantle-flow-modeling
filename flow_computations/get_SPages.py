@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 from mpl_toolkits.basemap import Basemap
 import matplotlib
 matplotlib.use('Agg')
@@ -40,13 +40,13 @@ num_bounds,iwall,lona,lata,lonb,latb,bound_ind,idl,idr,vt_ew,vt_ns,polarity,larg
 iseg_min=0
 n_segs,num_segs,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,polarity,num_wall_segs = \
 	organizebounds(num_bounds,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_wall_inds,vt_ew,vt_ns,dsegtr,dseged,polarity,rad_km,iseg_min)
-print "input done.\n---"
+print("input done.\n---")
 
-print "setting up pressure inversion points..."
+print("setting up pressure inversion points...")
 lono,lato,gam,alpha,vtopl,vtopr,vbotl,vbotr,vt,lon_subslab,lat_subslab,lon_wedge,lat_wedge =  \
 	pressurepoints(lona,lata,lonb,latb,vt_ew,vt_ns,iwall,idl,idr,n_segs,pole_top_lon,pole_top_lat,pole_top_rate,pole_bott_lon, \
 		pole_bott_lat,pole_bott_rate,rigid_vew,rigid_vns,ndomain,epslrc,rad_km,alith,shift_edges,polarity,epsdp_fact)
-print "pressure points set up.\n---"
+print("pressure points set up.\n---")
 
 # get subducting plate ages #############################################################
 
@@ -84,11 +84,11 @@ for i in range(num_DPs):
 			if dist_pt < dist_max:
 				dist_max = dist_pt
 				closest_ind = j
-		print i
+		print(i)
 	
 		sp_ages[i,2] = age_txt[closest_ind,2]
 
-print "getting rid of nans..."
+print("getting rid of nans...")
 for i in range(len(sp_ages)):
 
 	if np.isnan(sp_ages[i,2]):
@@ -102,10 +102,10 @@ for i in range(len(sp_ages)):
 
 		sp_ages[i,2] = sp_ages[closest_ind,2]
 
-print "got sp ages, saving..."
+print("got sp ages, saving...")
 np.savetxt(age_save_name,sp_ages,fmt='%.4f')	
 
-print "making a test plot..."
+print("making a test plot...")
 fig = plt.figure()
 
 ax = fig.add_subplot(221)
@@ -131,12 +131,12 @@ for i in range (num_DPs):
 
 # plot age grid
 lon, lat = np.meshgrid(lons, lats)
-xi, yi = map(lon, lat)
+xi, yi = list(map(lon, lat))
 age_plot = map.pcolor(xi,yi,ages,cmap='RdBu',vmin=0,vmax=160,zorder=1)
 
 # plot age points
 for j in range(num_DPs):
-	xo, yo = map(sp_ages[j,0],sp_ages[j,1])
+	xo, yo = list(map(sp_ages[j,0],sp_ages[j,1]))
 	if np.isnan(sp_ages[j,2]) == 1 and iwall[j]==1:
 		map.scatter(xo, yo, c='r',s=2.5,lw=0,zorder=2)
 	elif iwall[j] == 1:

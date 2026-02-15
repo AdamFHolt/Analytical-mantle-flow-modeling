@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 from mpl_toolkits.basemap import Basemap
 import matplotlib
 matplotlib.use('Agg')
@@ -158,7 +158,7 @@ for i in range (0,len(lata)):
 		else:
 			map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.3,color='black',zorder=0)
 for j in range(num_obs):
-	xo, yo = map(dips_lall[j,0],dips_lall[j,1])
+	xo, yo = list(map(dips_lall[j,0],dips_lall[j,1]))
 	dips_plot = map.scatter(xo, yo, c=dips_lall[j,2],s=25,cmap=shifted_dip_cmap,vmin=30,vmax=90,edgecolor='black',linewidth=0.2)
 cbar = map.colorbar(dips_plot,location='bottom',pad="5%",size="4%")
 cbar.set_ticks(np.array([30,45,60,75,90]))
@@ -192,7 +192,7 @@ for i in range (0,len(lata)):
 		else:
 			map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.3,color='black',zorder=0)
 for j in range(len(dips_slab2)):
-	xo, yo = map(dips_slab2[j,0],dips_slab2[j,1])
+	xo, yo = list(map(dips_slab2[j,0],dips_slab2[j,1]))
 	dips_plot = map.scatter(xo, yo, c=dips_slab2[j,2],s=25,cmap=shifted_dip_cmap,vmin=30,vmax=90,edgecolor='black',linewidth=0.2)
 cbar = map.colorbar(dips_plot,location='bottom',pad="5%",size="4%")
 cbar.set_ticks(np.array([30,45,60,75,90]))
@@ -225,7 +225,7 @@ for i in range (0,len(lata)):
 		else:
 			map.drawgreatcircle( lona[i],lata[i],lonb[i],latb[i],linewidth=0.3,color='black',zorder=0)
 for j in range(len(dips_slab2cont)):
-	xo, yo = map(dips_slab2cont[j,0],dips_slab2cont[j,1])
+	xo, yo = list(map(dips_slab2cont[j,0],dips_slab2cont[j,1]))
 	dips_plot = map.scatter(xo, yo, c=dips_slab2cont[j,2],s=25,cmap=shifted_dip_cmap,vmin=30,vmax=90,edgecolor='black',linewidth=0.2)
 cbar = map.colorbar(dips_plot,location='bottom',pad="5%",size="4%")
 cbar.set_ticks(np.array([30,45,60,75,90]))

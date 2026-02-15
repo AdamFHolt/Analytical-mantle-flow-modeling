@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 from mpl_toolkits.basemap import Basemap
 from netCDF4 import Dataset
 import matplotlib.pyplot as plt
@@ -71,7 +71,7 @@ for i in range(num_bounds):
 
 	plt.close(); plt.clf()
 
-	print "segment %.0f" % (i+1)
+	print("segment %.0f" % (i+1))
 	iwall = int(bounds[i,0])
 	lona = bounds[i,1]
 	lata = bounds[i,2]
@@ -140,18 +140,18 @@ for i in range(num_bounds):
 	else:
 		map.drawgreatcircle( lona,lata,lonb,latb,linewidth=2,color='black')
 	
-	x, y = map(lona,lata)
+	x, y = list(map(lona,lata))
 	map.plot(x, y, 'go', markersize=3.5)
-	x, y = map(lonb,latb)
+	x, y = list(map(lonb,latb))
 	map.plot(x, y, 'bo', markersize=3.5)
-	x, y = map(lono,lato)
+	x, y = list(map(lono,lato))
 	map.plot(x, y, 'ro', markersize=3.5)
 
-	x, y = map(lon_vta,lat_vta)
+	x, y = list(map(lon_vta,lat_vta))
 	map.plot(x, y, 'go', markersize=2)
-	x, y = map(lon_vtb,lat_vtb)
+	x, y = list(map(lon_vtb,lat_vtb))
 	map.plot(x, y, 'bo', markersize=2)
-	x, y = map(lon_vto,lat_vto)
+	x, y = list(map(lon_vto,lat_vto))
 	map.plot(x, y, 'ro', markersize=2)
 
 	plt.annotate(''.join(['vew = ',str(vew_a),', vns = ',str(vns_a),' mm/yr ']), xy=(0, 1.25), xycoords='axes fraction',color='green',size=10)
