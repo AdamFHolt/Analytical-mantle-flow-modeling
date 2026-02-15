@@ -160,7 +160,6 @@ def organizebounds(num_bounds,iwall,idl,idr,lona,lata,lonb,latb,bound_ind,large_
 
 		# great circle distance [km]
 		length = haversine(lona[i],lata[i],lonb[i],latb[i],rad_km)
-		print("orig. length of segment %.0f = %.8f km" % (i+1,length))
 		if iwall[i] == 1:
 			iseg = int(.999 * length/dsegtr) + 1
 		elif (idl[i] != idr[i]) and iwall[i] == 0:
