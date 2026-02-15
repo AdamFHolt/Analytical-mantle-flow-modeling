@@ -7,6 +7,7 @@ import matplotlib.cm as cm
 import numpy as np
 import subprocess
 import os
+import shutil
 import matplotlib.gridspec as gridspec
 matplotlib.rcParams['contour.negative_linestyle'] = 'solid'
 
@@ -218,7 +219,8 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	plt.quiverkey(J, 0.96, 0.0, 10, '10 cm/yr', labelpos='W',fontproperties={'size': '7'})
 
 	# finalize plot
-	bash_command = ''.join(['convert -density 400 -flatten ',press_plot_name,' ',press_plot_name_png]);
+	im_cmd = 'magick' if shutil.which('magick') else 'convert'
+	bash_command = ''.join([im_cmd,' -density 400 -flatten ',press_plot_name,' ',press_plot_name_png]);
 	plt.savefig(press_plot_name, bbox_inches='tight', format='pdf')
 	process = subprocess.Popen(['/bin/bash','-c',bash_command])
 	process.wait()

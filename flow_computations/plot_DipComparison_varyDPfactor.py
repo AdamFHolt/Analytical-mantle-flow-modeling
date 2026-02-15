@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import subprocess
 import sys, os, math
+import shutil
 
 plt.ioff()
 
@@ -518,7 +519,8 @@ ax.text(0.4,0.06,mean_all_string,size=5.5, color="black",transform = ax.transAxe
 
 fixed_aspect_ratio(1)
 
-bash_command = ''.join(['convert -density 400 -flatten ',plot_name,' ',plot_name_png]);
+im_cmd = 'magick' if shutil.which('magick') else 'convert'
+bash_command = ''.join([im_cmd,' -density 400 -flatten ',plot_name,' ',plot_name_png]);
 plt.savefig(plot_name, bbox_inches='tight', format='pdf')
 process = subprocess.Popen(['/bin/bash','-c',bash_command])
 process.wait()
