@@ -27,26 +27,27 @@ def readdomains(infile):
 	domain_bounds = []
 
 	for i in range(num_domains):
-		ndomain[i] = int(f[i].split('\t')[0])
+		row = f[i].strip().split('\t')
+		ndomain[i] = int(row[0])
 
-		if f[i].split('\t')[1] != '-':
-			lon = f[i].split('\t')[1]
+		if row[1] != '-':
+			lon = float(row[1])
 			if lon < 0:
 				pole_top_lon[i] = 360. + lon
 			else:
 				pole_top_lon[i] = lon
-		if f[i].split('\t')[2] != '-':
-			pole_top_lat[i] = f[i].split('\t')[2]
-		if f[i].split('\t')[3] != '-':
-			pole_top_rate[i] = f[i].split('\t')[3]
-		if f[i].split('\t')[4] != '-':
-			pole_bott_lon[i] = f[i].split('\t')[4]
-		if f[i].split('\t')[5] != '-':
-			pole_bott_lat[i] = f[i].split('\t')[5]
-		if f[i].split('\t')[6] != '-':
-			pole_bott_rate[i] = f[i].split('\t')[6]
-		if f[i].split('\t')[8] != '-':
-			boundaries = [x.strip() for x in f[i].split('\t')[8].split(',')]
+		if row[2] != '-':
+			pole_top_lat[i] = float(row[2])
+		if row[3] != '-':
+			pole_top_rate[i] = float(row[3])
+		if row[4] != '-':
+			pole_bott_lon[i] = float(row[4])
+		if row[5] != '-':
+			pole_bott_lat[i] = float(row[5])
+		if row[6] != '-':
+			pole_bott_rate[i] = float(row[6])
+		if row[8] != '-':
+			boundaries = [x.strip() for x in row[8].split(',')]
 			domain_bounds.append(boundaries) # get indices of segments that surround domain
 
 		if ndomain[i] == -100:	# (plate motion on the bottom)
@@ -82,33 +83,34 @@ def readbounds(infile):
 	large_wall_inds = np.zeros((num_bounds))
 
 	for i in range(num_bounds):
+		row = b[i].strip().split('\t')
 
-		iwall[i] = int(b[i].split('\t')[0])
-		lona_tmp = b[i].split('\t')[1]
+		iwall[i] = int(row[0])
+		lona_tmp = float(row[1])
 		if lona_tmp < 0:
 			lona[i] = 360.0 + lona_tmp
 		else:
 			lona[i] = lona_tmp
-		lata[i] = b[i].split('\t')[2]
-		lonb_tmp = b[i].split('\t')[3]
+		lata[i] = float(row[2])
+		lonb_tmp = float(row[3])
 		if lonb_tmp < 0:
 			lonb[i] = 360.0 + lonb_tmp
 		else:
 			lonb[i] = lonb_tmp
-		latb[i] = b[i].split('\t')[4]
+		latb[i] = float(row[4])
 		bound_ind[i] = i + 1;
 
 		if iwall[i] < 5: # edges / walls
-			idl[i] = int(b[i].split('\t')[5]) # plate to the left
-			idr[i] = int(b[i].split('\t')[6]) # plate to the right
+			idl[i] = int(row[5]) # plate to the left
+			idr[i] = int(row[6]) # plate to the right
 		if iwall[i] == 1: # wall
-			vt_ew[i] = b[i].split('\t')[7]
-			vt_ns[i] = b[i].split('\t')[8]
-			if b[i].split('\t')[9] == 'l': # subducting to left of segment
+			vt_ew[i] = float(row[7])
+			vt_ns[i] = float(row[8])
+			if row[9] == 'l': # subducting to left of segment
 				polarity[i] = 1;
-			elif b[i].split('\t')[9] == 'r': # subducting to the right of segment
+			elif row[9] == 'r': # subducting to the right of segment
 				polarity[i] = 2;
-			large_wall_inds[i] = int(b[i].split('\t')[10])
+			large_wall_inds[i] = int(row[10])
 
 	return (num_bounds,iwall,lona,lata,lonb,latb,bound_ind,idl,idr,vt_ew,vt_ns,polarity,large_wall_inds)
 

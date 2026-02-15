@@ -91,6 +91,8 @@ def full_run(python_cmd: str) -> int:
         "DIPS_OBS_TXT",
         str(ROOT / "dip_observations" / "dip_catalogues" / "Slab2_const-depth" / "AllDips.txt"),
     )
+    env.setdefault("MPLCONFIGDIR", "/tmp/mplcfg")
+    env.setdefault("XDG_CACHE_HOME", "/tmp")
 
     commands = [
         [
