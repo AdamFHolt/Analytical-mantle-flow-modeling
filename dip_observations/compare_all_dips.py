@@ -295,7 +295,10 @@ coeff_string = ''.join(['$\mathregular{R_{Pearson}}$ = ',str(round(coeff3, 3)),'
 ax.text(0.05,0.91,coeff_string,size=7, color="black",transform = ax.transAxes)
 
 im_cmd = 'magick' if shutil.which('magick') else 'convert'
-bash_command = ''.join([im_cmd,' -density 400 -flatten ',plot_name,' ',plot_name_png]);
+if im_cmd == 'magick':
+	bash_command = ''.join([im_cmd, ' -density 400 ', plot_name, ' -flatten ', plot_name_png]);
+else:
+	bash_command = ''.join([im_cmd, ' -density 400 -flatten ', plot_name, ' ', plot_name_png]);
 plt.savefig(plot_name, bbox_inches='tight', format='pdf')
 process = subprocess.Popen(['/bin/bash','-c',bash_command])
 process.wait()

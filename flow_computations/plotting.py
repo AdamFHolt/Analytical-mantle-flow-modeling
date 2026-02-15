@@ -220,7 +220,10 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 
 	# finalize plot
 	im_cmd = 'magick' if shutil.which('magick') else 'convert'
-	bash_command = ''.join([im_cmd,' -density 400 -flatten ',press_plot_name,' ',press_plot_name_png]);
+	if im_cmd == 'magick':
+		bash_command = ''.join([im_cmd, ' -density 400 ', press_plot_name, ' -flatten ', press_plot_name_png]);
+	else:
+		bash_command = ''.join([im_cmd, ' -density 400 -flatten ', press_plot_name, ' ', press_plot_name_png]);
 	plt.savefig(press_plot_name, bbox_inches='tight', format='pdf')
 	process = subprocess.Popen(['/bin/bash','-c',bash_command])
 	process.wait()
