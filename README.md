@@ -100,19 +100,6 @@ The notebook:
 
 Set `RUN_HEAVY = False` in the notebook to use precomputed shipped outputs, or `RUN_HEAVY = True` to rerun scripts.
 
-## Notebook workflow (publication-style reproduction)
-
-Use:
-
-- `notebooks/publication_style_reproduction.ipynb`
-
-This notebook is figure-oriented and deterministic:
-
-1. Validates a manifest of key figure/data assets.
-2. Computes reproducibility summary statistics from shipped outputs.
-3. Displays publication-style figure panels directly.
-4. Optionally reruns core generation scripts if `RUN_REGENERATE = True`.
-
 ## Running the core computations
 
 Run from `flow_computations/`.
