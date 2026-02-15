@@ -634,7 +634,8 @@ def findpressure_wall(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,alp,rad_km):
 	dista = haversine(lonaa,lataa,lonobs,latobs,rad_km) * 1.e3; 
 	distb = haversine(lonbb,latbb,lonobs,latobs,rad_km) * 1.e3; 
 	coshlam = (.5/gm) * (dista + distb)
-	sinhlam = np.sqrt(coshlam**2 -1.)
+	# Guard against tiny negative values from floating point roundoff.
+	sinhlam = np.sqrt(np.maximum(coshlam**2 - 1., 0.0))
 	cossig = (.5/gm) * (dista - distb)
 	if cossig > 1.:
 		cossig = 1.;
@@ -673,7 +674,8 @@ def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
 	dista = haversine(lonaa,lataa,lonobs,latobs,rad_km) * 1.e3; 
 	distb = haversine(lonbb,latbb,lonobs,latobs,rad_km) * 1.e3; 
 	coshlam = (.5/gm) * (dista + distb)
-	sinhlam = np.sqrt(coshlam**2 - 1.)
+	# Guard against tiny negative values from floating point roundoff.
+	sinhlam = np.sqrt(np.maximum(coshlam**2 - 1., 0.0))
 
 	cossig = (.5/gm) * (dista - distb)
 	if cossig > 1.:
