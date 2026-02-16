@@ -73,7 +73,9 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 
 	# Panel 1: plot full pressure
 	x, y = list(map(lons_out, lats_out))
-	cs = map.contourf(x,y,P_out,levels=np.linspace(-60,60,121),cmap=cm.get_cmap('bwr'),extend="both")
+	# Use matplotlib axis plotting directly to avoid Basemap clipping issues
+	# with newer matplotlib versions.
+	cs = ax.pcolormesh(x, y, P_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
 	cbar1 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar1.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar1.ax.tick_params(labelsize=6)
@@ -133,7 +135,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax2 = fig.add_subplot(312)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = map.contourf(x,y,Pedge_out,levels=np.linspace(-60,60,121),cmap=cm.get_cmap('bwr'),extend="both")
+	cs = ax2.pcolormesh(x, y, Pedge_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
 	cbar3 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar3.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar3.ax.tick_params(labelsize=6)
@@ -178,7 +180,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax3 = fig.add_subplot(313)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = map.contourf(x,y,Pwall_out,levels=np.linspace(-60,60,121),cmap=cm.get_cmap('bwr'),extend="both")
+	cs = ax3.pcolormesh(x, y, Pwall_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
 	cbar5 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar5.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar5.ax.tick_params(labelsize=6)
