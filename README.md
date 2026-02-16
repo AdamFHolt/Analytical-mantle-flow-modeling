@@ -2,8 +2,8 @@
 
 Code and data accompanying:
 
-- Holt, A. F., and Royden, L. H. (2020), *Subduction dynamics and mantle pressure: (ii) Towards a Global Understanding of Slab Dip and Upper Mantle Circulation*, doi:10.1029/2019GC008771
 - Royden, L. H., and Holt, A. F. (2020), *Subduction dynamics and mantle pressure: (i) An Analytical Framework Relating Subduction Geometry, Plate Motion, and Asthenospheric Pressure*, doi:10.1029/2020GC009032
+- Holt, A. F., and Royden, L. H. (2020), *Subduction dynamics and mantle pressure: (ii) Towards a Global Understanding of Slab Dip and Upper Mantle Circulation*, doi:10.1029/2019GC008771
 
 ## Repository layout
 
