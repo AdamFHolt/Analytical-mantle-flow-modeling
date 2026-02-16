@@ -9,6 +9,7 @@ import subprocess
 import os
 import shutil
 import matplotlib.gridspec as gridspec
+import matplotlib.tri as mtri
 matplotlib.rcParams['contour.negative_linestyle'] = 'solid'
 
 plt.ioff()
@@ -73,9 +74,16 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 
 	# Panel 1: plot full pressure
 	x, y = list(map(lons_out, lats_out))
-	# Use matplotlib axis plotting directly to avoid Basemap clipping issues
-	# with newer matplotlib versions.
-	cs = ax.pcolormesh(x, y, P_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
+	# Triangulated contouring on projected coordinates avoids both
+	# Basemap contourf incompatibilities (matplotlib>=3.10) and
+	# pcolormesh non-monotonic grid artifacts in Hammer projection.
+	tri = mtri.Triangulation(x.ravel(), y.ravel())
+	tx = tri.x[tri.triangles]
+	ty = tri.y[tri.triangles]
+	edge = np.sqrt((tx - np.roll(tx, -1, axis=1))**2 + (ty - np.roll(ty, -1, axis=1))**2)
+	max_edge = edge.max(axis=1)
+	tri.set_mask(max_edge > np.percentile(max_edge, 98))
+	cs = ax.tricontourf(tri, P_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
 	cbar1 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar1.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar1.ax.tick_params(labelsize=6)
@@ -135,7 +143,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax2 = fig.add_subplot(312)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = ax2.pcolormesh(x, y, Pedge_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
+	cs = ax2.tricontourf(tri, Pedge_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
 	cbar3 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar3.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar3.ax.tick_params(labelsize=6)
@@ -180,7 +188,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax3 = fig.add_subplot(313)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = ax3.pcolormesh(x, y, Pwall_out, cmap=cm.get_cmap('bwr'), vmin=-60, vmax=60, shading='auto')
+	cs = ax3.tricontourf(tri, Pwall_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
 	cbar5 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar5.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar5.ax.tick_params(labelsize=6)
