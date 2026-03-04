@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mantle Flow — Interactive Pressure Solver</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>Mantle Flow Pressure Solver</h1>
+  <span>Analytical BEM — interactive web interface</span>
+</header>
+
+<main>
+
+  <!-- ── Map ─────────────────────────────────────────────────── -->
+  <div id="map-wrap">
+    <canvas id="pressure-canvas" style="display:none"></canvas>
+    <svg id="map-svg"></svg>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" style="display:none">
+      <div id="loading-box">
+        <div id="loading-label">Running BEM solver…</div>
+        <div id="progress-track"><div id="progress-bar"></div></div>
+        <div id="loading-sub">Matrix inversion + grid output (~15 s)</div>
+      </div>
+    </div>
+
+    <!-- Colour-bar (hidden until first result) -->
+    <div id="colorbar" style="display:none">
+      <div class="cb-labels">
+        <span id="cb-min">–</span>
+        <span style="color:#b0b8cc">Pressure (MPa)</span>
+        <span id="cb-max">+</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Controls ─────────────────────────────────────────────── -->
+  <div id="controls">
+
+    <h2>Model</h2>
+    <div class="control-group">
+      <label>Plate model</label>
+      <select id="sel-model">
+        <option value="LargeSP_RetreatingTrench">LargeSP RetreatingTrench</option>
+        <option value="SmallSP_RetreatingTrench">SmallSP RetreatingTrench</option>
+        <option value="LargeSP_RetreatingTrenchSlabGap">LargeSP RetreatingTrench (gap)</option>
+        <option value="Slab2.0Final_NoJapTail_nnr_FS">Earth (no-Japan-tail)</option>
+        <option value="Slab2.0Final_NoJapTailNoPhil_nnr_FS">Earth (no-Japan-tail, no-Phil)</option>
+      </select>
+    </div>
+
+    <h2>Rheology</h2>
+    <div class="control-group">
+      <label>Viscosity (Pa·s)</label>
+      <input type="number" id="inp-visc" value="3e20" step="any">
+    </div>
+
+    <h2>Basal boundary</h2>
+    <div class="control-group">
+      <label>Base of asthenosphere</label>
+      <select id="sel-bc">
+        <option value="free" selected>Free slip</option>
+        <option value="no_slip">No slip</option>
+      </select>
+    </div>
+
+    <button id="btn-run">&#9654;  Run</button>
+    <div id="status"></div>
+
+    <!-- ── Legend ─────────────────────────────────────────────── -->
+    <h2>Legend</h2>
+    <div class="control-group">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#60a0ff"></div>
+        <span>Plate edge</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ff6040;height:4px"></div>
+        <span>Trench / slab wall</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#a0c860"></div>
+        <span>Strike-slip</span>
+      </div>
+      <div class="legend-item" style="margin-top:8px">
+        <div class="legend-swatch" style="background:linear-gradient(to right,#0000ff,#ffffff,#ff0000)"></div>
+        <span>Pressure (blue=low, red=high)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ffee80;height:2px"></div>
+        <span>Asthenospheric velocity</span>
+      </div>
+    </div>
+
+    <h2>About</h2>
+    <div class="control-group" style="color:#6070a0;line-height:1.5">
+      <p>Phase 1 skeleton — hardcoded geometry, real BEM computation.</p>
+      <p style="margin-top:6px">The solver reads <code>flow_computations/inputs/</code> directly via the Flask backend.</p>
+    </div>
+
+  </div><!-- #controls -->
+</main>
+
+<!-- D3 v7 + TopoJSON client -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

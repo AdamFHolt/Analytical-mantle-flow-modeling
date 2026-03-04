@@ -1,0 +1,221 @@
+/* ── Reset & base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+header {
+  background: #16213e;
+  padding: 10px 18px;
+  border-bottom: 1px solid #0f3460;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; }
+header span { color: #a0a0c0; font-size: 12px; }
+
+/* ── Main layout ───────────────────────────────────────────────── */
+main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Map area ──────────────────────────────────────────────────── */
+#map-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #0d1b2a;
+}
+
+#map-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Geo features */
+.graticule   { fill: none; stroke: #ffffff14; stroke-width: 0.5; }
+.sphere      { fill: #0d1b2a; }
+.land        { fill: #2a3a4a; stroke: #4a6070; stroke-width: 0.4; }
+.boundary    { fill: none; stroke-width: 1.4; }
+.boundary-0  { stroke: #60a0ff; }   /* plate edge */
+.boundary-1  { stroke: #ff6040; stroke-width: 2.2; }  /* trench / slab wall */
+.boundary-2  { stroke: #a0c860; }   /* strike-slip */
+
+.pressure-cell { opacity: 0.75; }
+
+/* Velocity arrows */
+.vel-arrow { stroke: #ffee80; stroke-width: 1.2; fill: none; marker-end: url(#arrowhead); }
+
+/* ── Loading overlay ───────────────────────────────────────────────────── */
+#loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: #0d1b2acc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+#loading-box {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 10px;
+  padding: 24px 32px;
+  min-width: 280px;
+  text-align: center;
+}
+#loading-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #c8d8f0;
+  margin-bottom: 14px;
+}
+#progress-track {
+  background: #0d1b2a;
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2a4080, #60a0ff);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+#loading-sub {
+  font-size: 11px;
+  color: #5070a0;
+}
+
+/* Colour-bar */
+#colorbar {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  background: #16213ecc;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 11px;
+  pointer-events: none;
+}
+#colorbar canvas { display: block; }
+#colorbar .cb-labels {
+  display: flex; justify-content: space-between; margin-top: 3px; color: #b0b8cc;
+}
+
+/* ── Controls panel ────────────────────────────────────────────── */
+#controls {
+  width: 240px;
+  background: #16213e;
+  border-left: 1px solid #0f3460;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+#controls h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7090b0;
+  padding: 14px 14px 6px;
+  border-bottom: 1px solid #0f3460;
+}
+
+.control-group {
+  padding: 12px 14px;
+  border-bottom: 1px solid #0f346040;
+}
+.control-group label {
+  display: block;
+  font-size: 11px;
+  color: #8090a8;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.control-group select,
+.control-group input[type="text"],
+.control-group input[type="number"] {
+  width: 100%;
+  background: #0d1b2a;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.control-group select:focus,
+.control-group input:focus {
+  outline: none;
+  border-color: #4060a0;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+#btn-run {
+  margin: 14px;
+  padding: 10px;
+  background: #2a4080;
+  border: none;
+  border-radius: 6px;
+  color: #e8eeff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.15s;
+}
+#btn-run:hover  { background: #3a5090; }
+#btn-run:active { background: #1a3060; }
+#btn-run:disabled { background: #222840; color: #505870; cursor: default; }
+
+/* ── Status area ───────────────────────────────────────────────── */
+#status {
+  margin: 0 14px 14px;
+  font-size: 11px;
+  color: #8090a8;
+  min-height: 16px;
+}
+#status.error { color: #ff7060; }
+#status.ok    { color: #60d080; }
+
+/* ── Spinner ───────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid #4060a040;
+  border-top-color: #60a0ff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Legend ────────────────────────────────────────────────────── */
+.legend-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: #8090a8; margin-bottom: 4px;
+}
+.legend-swatch {
+  width: 24px; height: 3px; border-radius: 2px; flex-shrink: 0;
+}

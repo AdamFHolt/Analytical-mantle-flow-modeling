@@ -1,0 +1,6 @@
+flask>=2.3
+numpy
+scipy
+geographiclib
+shapely
+xarray
