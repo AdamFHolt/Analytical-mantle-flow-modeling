@@ -36,11 +36,12 @@ Use `notebooks/workflow_examples.ipynb`.
 
 ### CLI driver
 
-From repository root:
+From repository root (with the environment activated):
 
 ```bash
-./run_example_workflow.py --mode quick
-./run_example_workflow.py --mode full
+conda activate mantle-flow-modeling
+python run_example_workflow.py --mode quick
+python run_example_workflow.py --mode full
 ```
 
 - `quick`: validates required precomputed artifacts.
