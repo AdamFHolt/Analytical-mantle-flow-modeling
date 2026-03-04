@@ -332,7 +332,7 @@ for j in range(num_good_subds):
 			y = dips_obs[k,1]
 			dip_point = dips_obs[k,2]
 			xo, yo = list(map(x,y))
-			dips_plot = map.scatter(xo, yo, c=dip_point,s=20,cmap=cm.get_cmap('inferno'),vmin=30,vmax=90,edgecolor='black',linewidth=0.2,zorder=2)
+			dips_plot = map.scatter(xo, yo, c=dip_point,s=20,cmap=matplotlib.colormaps['inferno'],vmin=30,vmax=90,edgecolor='black',linewidth=0.2,zorder=2)
 
 cbar = map.colorbar(dips_plot,location='bottom',pad="5%",size="4%")
 cbar.set_ticks(np.array([30,45,60,75,90,100]))
@@ -374,9 +374,9 @@ for j in range(num_good_subds):
 			if seg_dist[k] < 300 and np.isnan(best_dips[k]) == 0: 
 				if is_trench_fixed[k] == 0:  
 					if best_dips[k] > 90:
-						dips_plot = map.scatter(xo, yo, c=best_dips[k],s=20,cmap=cm.get_cmap('inferno'),vmin=30,vmax=90,linewidth=0.2,edgecolor='red',zorder=2)
+						dips_plot = map.scatter(xo, yo, c=best_dips[k],s=20,cmap=matplotlib.colormaps['inferno'],vmin=30,vmax=90,linewidth=0.2,edgecolor='red',zorder=2)
 					else:
-						dips_plot = map.scatter(xo, yo, c=best_dips[k],s=20,cmap=cm.get_cmap('inferno'),vmin=30,vmax=90,linewidth=0.2,edgecolor='black',zorder=2)
+						dips_plot = map.scatter(xo, yo, c=best_dips[k],s=20,cmap=matplotlib.colormaps['inferno'],vmin=30,vmax=90,linewidth=0.2,edgecolor='black',zorder=2)
 
 			elif seg_dist[k] < 300 and np.isnan(best_dips[k]) == 1 and is_trench_fixed[k] == 0:
 				dips_plot = map.scatter(xo, yo, s=5,color='red',zorder=2)

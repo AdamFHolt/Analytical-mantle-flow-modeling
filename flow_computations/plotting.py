@@ -83,7 +83,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	edge = np.sqrt((tx - np.roll(tx, -1, axis=1))**2 + (ty - np.roll(ty, -1, axis=1))**2)
 	max_edge = edge.max(axis=1)
 	tri.set_mask(max_edge > np.percentile(max_edge, 98))
-	cs = ax.tricontourf(tri, P_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
+	cs = ax.tricontourf(tri, P_out.ravel(), levels=np.linspace(-60,60,121), cmap=matplotlib.colormaps['bwr'], extend="both")
 	cbar1 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar1.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar1.ax.tick_params(labelsize=6)
@@ -131,9 +131,9 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 		if np.sqrt(vt_ew_temp[j]**2 + vt_ns_temp[j]**2) > 0.05:
 			xo, yo = list(map(lono[j],lato[j]))
 			if DP_walls[j] > 0:
-				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=cm.get_cmap('CMRmap_r'),vmin=-80,vmax=0,edgecolors='white',linewidth = 0.25,zorder=3)
+				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=matplotlib.colormaps['CMRmap_r'],vmin=-80,vmax=0,edgecolors='white',linewidth = 0.25,zorder=3)
 			else:
-				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=cm.get_cmap('CMRmap_r'),vmin=-80,vmax=0,lw = 0,zorder=3)
+				dps = map.scatter(xo, yo, c=DP_walls[j],s=17.5,cmap=matplotlib.colormaps['CMRmap_r'],vmin=-80,vmax=0,lw = 0,zorder=3)
 	cbar2 = map.colorbar(dps,location='right',pad="23%",size="2%",extend='both')
 	cbar2.set_ticks(np.array([-80,-60,-40,-20, 0]))
 	cbar2.ax.tick_params(labelsize=6)
@@ -143,7 +143,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax2 = fig.add_subplot(312)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = ax2.tricontourf(tri, Pedge_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
+	cs = ax2.tricontourf(tri, Pedge_out.ravel(), levels=np.linspace(-60,60,121), cmap=matplotlib.colormaps['bwr'], extend="both")
 	cbar3 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar3.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar3.ax.tick_params(labelsize=6)
@@ -188,7 +188,7 @@ def plot_pressure_components(lons_out,lats_out,P_out,Pwall_out,Pedge_out,lona,la
 	ax3 = fig.add_subplot(313)
 	map.drawmeridians(np.arange(0,360,45),linewidth=0.1)
 	map.drawparallels(np.arange(-90,90,45),linewidth=0.1)	
-	cs = ax3.tricontourf(tri, Pwall_out.ravel(), levels=np.linspace(-60,60,121), cmap=cm.get_cmap('bwr'), extend="both")
+	cs = ax3.tricontourf(tri, Pwall_out.ravel(), levels=np.linspace(-60,60,121), cmap=matplotlib.colormaps['bwr'], extend="both")
 	cbar5 = map.colorbar(cs,location='right',pad="-6%",size="2%")
 	cbar5.set_ticks(np.array([-60,-40,-20,0,20,40,60]))
 	cbar5.ax.tick_params(labelsize=6)

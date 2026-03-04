@@ -137,7 +137,7 @@ ax = fig.add_subplot(231)
 map = Basemap(projection='hammer',lon_0=180,resolution='l')
 map.drawmeridians(np.arange(0,360,30),linewidth=0.1,linecolor='gray')
 map.drawparallels(np.arange(-90,90,30),linewidth=0.1,linecolor='gray')
-orig_dip_cmap = cm.get_cmap('PuOr')
+orig_dip_cmap = matplotlib.colormaps['PuOr']
 shifted_dip_cmap = shiftedColorMap(orig_dip_cmap, midpoint=60./90., name='shifted')
 # segments
 for i in range (0,len(lata)):
@@ -171,7 +171,7 @@ ax = fig.add_subplot(232)
 map = Basemap(projection='hammer',lon_0=180,resolution='l')
 map.drawmeridians(np.arange(0,360,30),linewidth=0.1,linecolor='gray')
 map.drawparallels(np.arange(-90,90,30),linewidth=0.1,linecolor='gray')
-orig_dip_cmap = cm.get_cmap('PuOr')
+orig_dip_cmap = matplotlib.colormaps['PuOr']
 shifted_dip_cmap = shiftedColorMap(orig_dip_cmap, midpoint=60./90., name='shifted')
 # segments
 for i in range (0,len(lata)):
@@ -204,7 +204,7 @@ ax = fig.add_subplot(233)
 map = Basemap(projection='hammer',lon_0=180,resolution='l')
 map.drawmeridians(np.arange(0,360,30),linewidth=0.1,linecolor='gray')
 map.drawparallels(np.arange(-90,90,30),linewidth=0.1,linecolor='gray')
-orig_dip_cmap = cm.get_cmap('PuOr')
+orig_dip_cmap = matplotlib.colormaps['PuOr']
 shifted_dip_cmap = shiftedColorMap(orig_dip_cmap, midpoint=60./90., name='shifted')
 # segments
 for i in range (0,len(lata)):
