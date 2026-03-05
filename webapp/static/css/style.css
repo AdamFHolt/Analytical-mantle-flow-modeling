@@ -212,6 +212,26 @@ main {
   outline: none;
   border-color: #4060a0;
 }
+.scale-row {
+  display: flex;
+  gap: 8px;
+}
+.scale-col {
+  flex: 1;
+  min-width: 0;
+}
+.scale-col label {
+  display: block;
+  font-size: 11px;
+  color: #8090a8;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.scale-col input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+}
 
 /* ── Buttons ───────────────────────────────────────────────────── */
 #btn-run {

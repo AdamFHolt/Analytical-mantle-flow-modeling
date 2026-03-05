@@ -210,7 +210,12 @@ function _reprojectArrows(layer, cls) {
 
 async function loadGeometry(model) {
   try {
-    const resp = await fetch(`/geometry?model=${encodeURIComponent(model)}`);
+    let url = `/geometry?model=${encodeURIComponent(model)}`;
+    if (model === 'Simple') {
+      url += `&width=${document.getElementById('inp-width').value}`;
+      url += `&length=${document.getElementById('inp-length').value}`;
+    }
+    const resp = await fetch(url);
     const data = await resp.json();
 
     _isEarth      = data.is_earth      || false;
@@ -218,9 +223,10 @@ async function loadGeometry(model) {
     _plateVelGrid = data.plate_velocities  || [];
     _trenchVelGrid = data.trench_velocities || [];   // keep vew/vns for re-render on scale change
 
-    // Show / hide velocity controls
+    // Show / hide velocity controls and plate-dimension controls
     document.getElementById('vel-idealized').style.display  = _isEarth ? 'none'  : 'block';
     document.getElementById('vel-earth-note').style.display = _isEarth ? 'block' : 'none';
+    document.getElementById('simple-dims').style.display    = (model === 'Simple') ? 'block' : 'none';
 
     if (!_isEarth) {
       if (data.sp_euler_pole) {
@@ -307,7 +313,7 @@ function finishProgress() {
   if (!cvs) return;
   const ctx = cvs.getContext('2d');
   for (let px = 0; px < 180; px++) {
-    ctx.fillStyle = d3.interpolateViridis(1 - px / 179);
+    ctx.fillStyle = d3.interpolateViridis(px / 179);
     ctx.fillRect(px, 0, 1, 8);
   }
 })();
@@ -374,6 +380,7 @@ selModel.addEventListener('change', () => {
   _plateVelGrid = []; _trenchVelGrid = []; _spDomainIdx = null; _lastEulerPole = null;
   _lastPlateVels = [];
   document.getElementById('colorbar').style.display = 'none';
+  document.getElementById('simple-dims').style.display = (selModel.value === 'Simple') ? 'block' : 'none';
   document.getElementById('plate-vel-bar').style.display = 'none';
   document.getElementById('plate-vel-arrow-key').style.display = 'none';
   document.getElementById('btn-pv-png').disabled = true;
@@ -389,10 +396,8 @@ let _lastBounds = null;
 
 // Per-model timing estimates (seconds) split into solve vs grid phases.
 const MODEL_EST = {
-  'LargeSP_RetreatingTrench':             { solve:  6, grid:  9 },
-  'SmallSP_RetreatingTrench':             { solve:  4, grid:  6 },
-  'LargeSP_RetreatingTrenchSlabGap':      { solve:  6, grid:  9 },
-  'Slab2.0Final_NoJapTail_nnr_FS':        { solve: 30, grid: 30 },
+  'Simple':                         { solve:  5, grid:  8 },
+  'Slab2.0Final_NoJapTail_nnr_FS':  { solve: 30, grid: 30 },
 };
 
 const loadingLabel = document.getElementById('loading-label');
@@ -412,6 +417,10 @@ btnRun.addEventListener('click', async () => {
     fullPayload.euler_rate = parseFloat(document.getElementById('inp-euler-rate').value);
     fullPayload.trench_vew = parseFloat(document.getElementById('inp-trench-vew').value);
     fullPayload.trench_vns = parseFloat(document.getElementById('inp-trench-vns').value);
+    if (model === 'Simple') {
+      fullPayload.width_deg  = parseFloat(document.getElementById('inp-width') .value);
+      fullPayload.length_deg = parseFloat(document.getElementById('inp-length').value);
+    }
   }
   // Grid-only payload: the fields that grid_only() reads.
   const gridPayload = {
@@ -493,7 +502,7 @@ function renderPlateVelocities(vels) {
   const { w, h } = svgSize();
   // Scale: arrow representing vmax mm/yr ≈ 3 % of the shorter map dimension
   const arrowScale = Math.min(w, h) * 0.03 / vmax;
-  const colorScale = s => d3.interpolateViridis(1 - Math.min(1, s / vmax));
+  const colorScale = s => d3.interpolateViridis(Math.min(1, s / vmax));
 
   const arrows = vels.map(v => {
     const spd = Math.hypot(v.vew, v.vns);
@@ -592,6 +601,7 @@ function revertToGeometry() {
   gPlateVel.style('display', null);
   gTrenchVel.style('display', null);
   document.getElementById('vel-key-item').style.display = 'none';
+  document.getElementById('colorbar').style.display = 'none';
   document.getElementById('btn-png').disabled = true;
   document.getElementById('btn-csv').disabled = true;
   setStatus('');
@@ -740,11 +750,42 @@ function updateEulerPoleMarker(lat, lon) {
 
 
 /**
+ * Approximate point-to-segment distance in degrees (cos-lat corrected).
+ * Used to exclude velocity arrows that are too close to slab walls.
+ */
+function _minDistToSlabWalls(lat, lon, slabWalls) {
+  const RAD = Math.PI / 180;
+  let minDist = Infinity;
+  for (const b of slabWalls) {
+    const midLat = (lat + b.lata + b.latb) / 3;
+    const coslat = Math.cos(midLat * RAD);
+    // Normalise longitudes relative to b.lona to handle antimeridian wrap.
+    const lonb = b.lona + (((b.lonb - b.lona) + 540) % 360 - 180);
+    const lonp = b.lona + (((lon   - b.lona) + 540) % 360 - 180);
+    const px = (lonp - b.lona) * coslat, py = lat - b.lata;
+    const dx = (lonb - b.lona) * coslat, dy = b.latb - b.lata;
+    const lenSq = dx * dx + dy * dy;
+    let d;
+    if (lenSq < 1e-10) {
+      d = Math.hypot(px, py);
+    } else {
+      const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+      d = Math.hypot(px - t * dx, py - t * dy);
+    }
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
+
+/**
  * Draw velocity arrows at subsampled grid points.
  * Arrows scaled to map units so they are readable.
+ * Points within 5° of any slab wall are excluded (vectors are unrealistically large there).
  */
 function renderVelocity(velocity) {
   if (!velocity || !velocity.length) return;
+
+  const slabWalls = (_lastBounds || []).filter(b => b.type === 1);
 
   // velocity data is in cm/yr; scale input is in mm/yr (1 cm/yr = 10 mm/yr).
   const velScaleCmyr = getVelScale() / 10;
@@ -753,6 +794,7 @@ function renderVelocity(velocity) {
 
   const arrows = velocity
     .filter(v => isFinite(v.vew) && isFinite(v.vns))
+    .filter(v => _minDistToSlabWalls(v.lat, v.lon, slabWalls) >= 5)
     .map(v => {
       const [x0, y0] = proj([normLon(v.lon), v.lat]) || [null, null];
       if (x0 === null) return null;
@@ -776,6 +818,7 @@ function renderVelocity(velocity) {
 function renderColorbar() {
   const vmax = getPressScale();
   const cbDiv = document.getElementById('colorbar');
+  cbDiv.style.display = 'block';
 
   let canvas = cbDiv.querySelector('canvas');
   if (!canvas) {
@@ -1023,10 +1066,87 @@ viscInput.addEventListener('keydown', e => {
 
 _syncViscStep();  // initialise step on page load
 
+// ── Re-run grid phase using cached BEM solve ────────────────────────────────
+// Used when only viscosity or plot depth changes — no need to redo the solve.
+async function rerunGrid() {
+  if (!lastResult) return;
+  const model = selModel.value;
+  const est = MODEL_EST[model] || { solve: 10, grid: 10 };
+  const gridPayload = {
+    viscosity:        parseFloat(document.getElementById('inp-visc').value),
+    press_depth:      parseFloat(inpDepth.value) * 1000,
+    grid_spacing_deg: parseFloat(document.getElementById('sel-res').value),
+  };
+
+  btnRun.disabled = true;
+  btnStop.disabled = false;
+  btnStop.textContent = '■ Stop';
+  overlay.style.display = 'flex';
+  loadingLabel.textContent = 'Updating grid…';
+  startProgress(est.grid * 1000);
+  setStatus('');
+
+  try {
+    const resp = await fetch('/compute/grid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(gridPayload),
+    });
+    const data = await resp.json();
+    if (data.cancelled) { setStatus('Cancelled.'); return; }
+    if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    finishProgress();
+    await new Promise(r => setTimeout(r, 200));
+    lastResult = data;
+    renderResult(data);
+    setStatus(`Done in ${data.timing_s.toFixed(1)} s`, 'ok');
+    document.getElementById('btn-png').disabled = false;
+    document.getElementById('btn-csv').disabled = false;
+  } catch (err) {
+    setStatus(`Error: ${err.message}`, 'error');
+  } finally {
+    overlay.style.display = 'none';
+    progBar.style.width = '0%';
+    loadingLabel.textContent = 'Running BEM solver…';
+    btnRun.disabled = false;
+    btnStop.disabled = false;
+  }
+}
+
+// ── Plate dimensions (Simple model): changing shape → full geometry reload ───
+function _reloadSimpleGeometry() {
+  gBounds.selectAll('*').remove();
+  _lastBounds = null;
+  gPressure.selectAll('image').remove();
+  gVelocity.selectAll('.vel-arrow').remove();
+  gPlateVel.selectAll('.plate-vel-arrow').remove();
+  gTrenchVel.selectAll('.trench-vel-arrow').remove();
+  gEulerPole.selectAll('.euler-pole-marker').remove();
+  _plateVelGrid = []; _trenchVelGrid = []; _spDomainIdx = null; _lastEulerPole = null;
+  _lastPlateVels = [];
+  document.getElementById('colorbar').style.display = 'none';
+  document.getElementById('plate-vel-bar').style.display = 'none';
+  document.getElementById('plate-vel-arrow-key').style.display = 'none';
+  document.getElementById('btn-pv-png').disabled = true;
+  document.getElementById('btn-pv-csv').disabled = true;
+  lastResult = null;
+  setStatus('');
+  loadGeometry(selModel.value);
+}
+['inp-width', 'inp-length'].forEach(id => {
+  document.getElementById(id).addEventListener('change', _reloadSimpleGeometry);
+});
+
 // ── Revert to geometry view when model parameters change ────────────────────
-// Rheology / basal BC
-['inp-visc', 'sel-bc'].forEach(id => {
-  document.getElementById(id).addEventListener('change', revertToGeometry);
+// Basal BC affects the solve cache key → full revert required.
+document.getElementById('sel-bc').addEventListener('change', revertToGeometry);
+// Viscosity / depth only affect the grid phase → re-run grid if result exists.
+document.getElementById('inp-visc').addEventListener('change', () => {
+  if (lastResult) rerunGrid(); else revertToGeometry();
+});
+inpDepth.addEventListener('change', () => {
+  if (lastResult) rerunGrid();
 });
 // Velocity inputs (live — use 'input' so dragging/typing reverts immediately)
 ['inp-euler-lat', 'inp-euler-lon', 'inp-euler-rate',
@@ -1034,6 +1154,5 @@ _syncViscStep();  // initialise step on page load
   document.getElementById(id).addEventListener('input', revertToGeometry);
 });
 
-// Initialise colorbar and legend labels immediately on page load.
-renderColorbar();
+// Initialise legend labels immediately on page load.
 updateVelScaleLegend();

@@ -125,8 +125,14 @@ def compute_cancel():
 @app.route('/geometry')
 def geometry():
     try:
-        model = request.args.get('model', 'LargeSP_RetreatingTrench')
-        return jsonify(_compute_mod.get_geometry(model))
+        model = request.args.get('model', 'Simple')
+        w = request.args.get('width',  None)
+        l = request.args.get('length', None)
+        return jsonify(_compute_mod.get_geometry(
+            model,
+            width_deg  = float(w) if w else None,
+            length_deg = float(l) if l else None,
+        ))
     except Exception as exc:
         import traceback
         return jsonify({'error': str(exc), 'traceback': traceback.format_exc()}), 500
