@@ -58,7 +58,7 @@ main {
 .pressure-cell { opacity: 0.75; }
 
 /* Asthenospheric flow arrows */
-.vel-arrow { stroke: #ffee80; stroke-width: 1.2; fill: none; marker-end: url(#arrowhead); }
+.vel-arrow { stroke: #ffee80; stroke-width: 2.0; fill: none; marker-end: url(#arrowhead); }
 
 /* Plate velocity arrows (stroke colour set per-element by JS) */
 .plate-vel-arrow { stroke-width: 2.5; fill: none; }
@@ -292,6 +292,9 @@ main {
   outline: none;
   border-color: #4060a0;
 }
+
+/* ── Subduction zone teeth ─────────────────────────────────────── */
+.trench-tooth { fill: #ff6040; stroke: none; }
 
 /* ── Euler pole marker (×) ────────────────────────────────────── */
 .euler-pole-marker { stroke: #ffaa00; stroke-width: 2; fill: none; }

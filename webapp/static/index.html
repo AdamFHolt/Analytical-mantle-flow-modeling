@@ -30,8 +30,8 @@
       </div>
     </div>
 
-    <!-- Colour-bar (hidden until first result) -->
-    <div id="colorbar" style="display:none">
+    <!-- Colour-bar -->
+    <div id="colorbar">
       <div class="cb-labels">
         <span id="cb-min">–</span>
         <span style="color:#b0b8cc">Pressure (MPa)</span>
@@ -91,6 +91,16 @@
     <!-- Earth: read-only note -->
     <div id="vel-earth-note" class="control-group" style="display:none">
       <span style="color:#6070a0;font-size:11px">Using file velocities</span>
+    </div>
+
+    <h2>Display</h2>
+    <div class="control-group">
+      <label>Pressure scale (±MPa)</label>
+      <input type="number" id="inp-press-scale" value="25" min="0.1" step="1">
+    </div>
+    <div class="control-group">
+      <label>Velocity scale (mm/yr)</label>
+      <input type="number" id="inp-vel-scale" value="40" min="1" step="10">
     </div>
 
     <h2>Output</h2>

@@ -101,6 +101,7 @@ def get_geometry(model: str) -> dict:
             'latb':         _to_float(latb[i]),
             'left_domain':  int(idl[i]),
             'right_domain': int(idr[i]),
+            'polarity':     int(polarity[i]),
         })
 
         if iwall[i] == 1:
@@ -357,6 +358,7 @@ def solve_only(payload: dict) -> dict:
             'latb':        _to_float(latb[i]),
             'left_domain': int(idl[i]),
             'right_domain':int(idr[i]),
+            'polarity':    int(polarity[i]),
         }
         for i in range(num_bounds)
     ]

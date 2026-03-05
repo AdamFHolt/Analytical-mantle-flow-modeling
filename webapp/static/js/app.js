@@ -188,7 +188,7 @@ function redrawStatic() {
   gGraticule.select('path').attr('d', path);
   gLand.selectAll('path').attr('d', path);
   if (lastResult) renderResult(lastResult);
-  else gBounds.selectAll('.boundary').attr('d', path);
+  else if (_lastBounds) renderBoundaries(_lastBounds);
   // Re-project geometry velocity arrows on resize.
   _reprojectArrows(gPlateVel,  '.plate-vel-arrow');
   _reprojectArrows(gTrenchVel, '.trench-vel-arrow');
@@ -216,7 +216,7 @@ async function loadGeometry(model) {
     _isEarth      = data.is_earth      || false;
     _spDomainIdx  = data.sp_domain_idx || null;
     _plateVelGrid = data.plate_velocities  || [];
-    _trenchVelGrid = (data.trench_velocities || []).map(t => ({ lon: t.lon, lat: t.lat }));
+    _trenchVelGrid = data.trench_velocities || [];   // keep vew/vns for re-render on scale change
 
     // Show / hide velocity controls
     document.getElementById('vel-idealized').style.display  = _isEarth ? 'none'  : 'block';
@@ -319,7 +319,11 @@ let _trenchVelGrid = [];   // [{lon, lat}] positions only
 let _spDomainIdx   = null; // 1-indexed domain of SP
 let _isEarth       = false;
 let _lastEulerPole = null; // {lat, lon} for resize redraw
-let _plateVmax     = 0;    // max plate speed (mm/yr) — used as shared scale for trench arrows
+
+/** User-set velocity scale: arrows representing this speed (mm/yr) are drawn at max length. */
+function getVelScale()   { return parseFloat(document.getElementById('inp-vel-scale').value)   ||  40; }
+/** User-set pressure scale: colour range is ±this value (MPa). */
+function getPressScale() { return parseFloat(document.getElementById('inp-press-scale').value) ||  25; }
 
 // ── Live velocity arrow updates ─────────────────────────────────────────────
 
@@ -375,7 +379,8 @@ selModel.addEventListener('change', () => {
 
 // ── Run computation ────────────────────────────────────────────────────────
 
-let lastResult = null;
+let lastResult  = null;
+let _lastBounds = null;
 
 // Per-model timing estimates (seconds) split into solve vs grid phases.
 const MODEL_EST = {
@@ -479,17 +484,11 @@ function renderPlateVelocities(vels) {
   if (!vels || !vels.length) return;
   gPlateVel.selectAll('.plate-vel-arrow').remove();
 
-  const speeds = vels.map(v => Math.hypot(v.vew, v.vns)).filter(isFinite);
-  if (!speeds.length) return;
-  const vmax = Math.max(...speeds);
-  if (vmax === 0) return;
-
-  _plateVmax = vmax;  // store for trench arrow scale reference
-
+  const vmax = getVelScale();   // fixed user-set scale (mm/yr)
   const { w, h } = svgSize();
-  // Scale: max arrow ≈ 3 % of the shorter map dimension
+  // Scale: arrow representing vmax mm/yr ≈ 3 % of the shorter map dimension
   const arrowScale = Math.min(w, h) * 0.03 / vmax;
-  const colorScale = s => d3.interpolatePlasma(0.15 + 0.85 * (s / vmax));
+  const colorScale = s => d3.interpolatePlasma(0.15 + 0.85 * Math.min(1, s / vmax));
 
   const arrows = vels.map(v => {
     const spd = Math.hypot(v.vew, v.vns);
@@ -501,12 +500,11 @@ function renderPlateVelocities(vels) {
     return { lon: v.lon, lat: v.lat, _dx: dx, _dy: dy, spd };
   }).filter(Boolean);
 
-  // Update plate-vel legend swatch with vmax
+  // Update plate-vel legend swatch
   const pvKey = document.getElementById('plate-vel-key');
   if (pvKey) {
     pvKey.style.display = 'flex';
-    document.getElementById('plate-vel-vmax').textContent =
-      `max ${vmax.toFixed(0)} mm/yr`;
+    document.getElementById('plate-vel-vmax').textContent = `${vmax} mm/yr`;
   }
 
   gPlateVel.selectAll('.plate-vel-arrow')
@@ -529,13 +527,7 @@ function renderTrenchVelocities(vels) {
   if (!vels || !vels.length) return;
   gTrenchVel.selectAll('.trench-vel-arrow').remove();
 
-  const speeds = vels.map(v => Math.hypot(v.vew, v.vns)).filter(isFinite);
-  if (!speeds.length) return;
-  // Use the plate velocity scale as reference so trench arrow length is meaningful.
-  // Fall back to the local max only if no plate arrows have been rendered yet.
-  const refVmax = _plateVmax > 0 ? _plateVmax : Math.max(...speeds);
-  if (refVmax === 0) return;
-
+  const refVmax = getVelScale();   // fixed user-set scale (mm/yr)
   const { w, h } = svgSize();
   const arrowScale = Math.min(w, h) * 0.03 / refVmax;
 
@@ -569,8 +561,25 @@ function renderResult(data) {
   renderPressure(data);
   renderBoundaries(data.boundaries);
   renderVelocity(data.velocity);
-  renderColorbar(data);
-  updateVectorKey(data.vel_max_cmyr || 0);
+  renderColorbar();
+  updateVelScaleLegend();
+}
+
+/**
+ * Revert the map to the geometry/velocity view after a pressure result has been shown.
+ * No-ops if no result is currently displayed.
+ */
+function revertToGeometry() {
+  if (!lastResult) return;
+  lastResult = null;
+  gPressure.selectAll('image').remove();
+  gVelocity.selectAll('.vel-arrow').remove();
+  gPlateVel.style('display', null);
+  gTrenchVel.style('display', null);
+  document.getElementById('vel-key-item').style.display = 'none';
+  document.getElementById('btn-png').disabled = true;
+  document.getElementById('btn-csv').disabled = true;
+  setStatus('');
 }
 
 /**
@@ -581,14 +590,7 @@ function renderPressure(data) {
   const { lons, lats, pressure } = data;
   const { w, h } = svgSize();
 
-  // vmax = 95th percentile of |p| to avoid extreme outliers dominating the scale.
-  const absVals = [];
-  for (let i = 0; i < lats.length; i++)
-    for (let j = 0; j < lons.length; j++)
-      if (isFinite(pressure[i][j])) absVals.push(Math.abs(pressure[i][j]));
-  absVals.sort((a, b) => a - b);
-  const vmax = absVals[Math.floor(absVals.length * 0.95)] || 1;
-  lastResult._vmax = vmax;
+  const vmax = getPressScale();   // user-set symmetric scale (MPa)
 
   pressureCanvas.width  = w;
   pressureCanvas.height = h;
@@ -648,6 +650,64 @@ function renderPressure(data) {
 }
 
 /**
+ * Draw original plate boundaries and subduction zone teeth.
+ *   type 0 → plate edge (blue)
+ *   type 1 → slab wall / trench (red) + teeth triangles
+ *   type 2 → strike-slip (green)
+ */
+function renderBoundaries(bounds) {
+  if (!bounds || !bounds.length) return;
+  _lastBounds = bounds;
+
+  const features = bounds.map(b =>
+    lineFeature(b.lona, b.lata, b.lonb, b.latb, { btype: b.type })
+  );
+
+  gBounds.selectAll('.boundary')
+    .data(features)
+    .join('path')
+      .attr('class', d => `boundary boundary-${d.properties.btype}`)
+      .attr('d', path);
+
+  // ── Subduction teeth on type-1 segments ───────────────────────────────────
+  gBounds.selectAll('.trench-tooth').remove();
+
+  const TOOTH_SPACING = 22;  // target px between tooth centres
+  const TOOTH_H = 7;         // height perpendicular to segment
+  const TOOTH_W = 5;         // half-base width along segment
+  const MIN_LEN = 8;         // skip segments shorter than this (px)
+
+  bounds.filter(b => b.type === 1).forEach(b => {
+    const pa = proj([normLon(b.lona), b.lata]);
+    const pb = proj([normLon(b.lonb), b.latb]);
+    if (!pa || !pb) return;
+
+    const dx = pb[0] - pa[0], dy = pb[1] - pa[1];
+    const len = Math.hypot(dx, dy);
+    if (len < MIN_LEN) return;
+
+    const ux = dx / len, uy = dy / len;
+    // polarity > 0 → teeth to the left of a→b direction: (-uy, ux)
+    // polarity < 0 → teeth to the right: (uy, -ux)
+    const pol = (b.polarity != null && b.polarity < 0) ? 1 : -1;
+    const nx = uy * pol, ny = -ux * pol;
+
+    const nTeeth = Math.max(1, Math.round(len / TOOTH_SPACING));
+    for (let k = 0; k < nTeeth; k++) {
+      const t  = (k + 0.5) / nTeeth;
+      const mx = pa[0] + dx * t, my = pa[1] + dy * t;
+      const apex  = [mx + nx * TOOTH_H,  my + ny * TOOTH_H];
+      const base1 = [mx - ux * TOOTH_W,  my - uy * TOOTH_W];
+      const base2 = [mx + ux * TOOTH_W,  my + uy * TOOTH_W];
+      gBounds.append('polygon')
+        .attr('class', 'trench-tooth')
+        .attr('points',
+          `${base1[0]},${base1[1]} ${base2[0]},${base2[1]} ${apex[0]},${apex[1]}`);
+    }
+  });
+}
+
+/**
  * Draw or update the Euler pole marker (×) on the map.
  * Pass null to remove the marker.
  */
@@ -663,25 +723,6 @@ function updateEulerPoleMarker(lat, lon) {
     .attr('x1', xy[0]).attr('y1', xy[1]-s).attr('x2', xy[0]).attr('y2', xy[1]+s);
 }
 
-/**
- * Draw original plate boundaries (edges and slab walls).
- *   type 0 → plate edge (blue)
- *   type 1 → slab wall / trench (red)
- *   type 2 → strike-slip (green)
- */
-function renderBoundaries(bounds) {
-  if (!bounds || !bounds.length) return;
-
-  const features = bounds.map(b =>
-    lineFeature(b.lona, b.lata, b.lonb, b.latb, { btype: b.type })
-  );
-
-  gBounds.selectAll('.boundary')
-    .data(features)
-    .join('path')
-      .attr('class', d => `boundary boundary-${d.properties.btype}`)
-      .attr('d', path);
-}
 
 /**
  * Draw velocity arrows at subsampled grid points.
@@ -690,16 +731,10 @@ function renderBoundaries(bounds) {
 function renderVelocity(velocity) {
   if (!velocity || !velocity.length) return;
 
-  // Find max speed for normalisation.
-  let vmax = 0;
-  velocity.forEach(v => {
-    const spd = Math.hypot(v.vew, v.vns);
-    if (isFinite(spd)) vmax = Math.max(vmax, spd);
-  });
-  if (vmax === 0) return;
-
+  // velocity data is in cm/yr; scale input is in mm/yr (1 cm/yr = 10 mm/yr).
+  const velScaleCmyr = getVelScale() / 10;
   const { w, h } = svgSize();
-  const arrowScale = Math.min(w, h) * 0.04 / vmax;  // pixels per (m/s)
+  const arrowScale = Math.min(w, h) * 0.03 / velScaleCmyr;  // pixels per (cm/yr)
 
   const arrows = velocity
     .filter(v => isFinite(v.vew) && isFinite(v.vns))
@@ -721,12 +756,11 @@ function renderVelocity(velocity) {
 }
 
 /**
- * Draw a horizontal colour-bar legend.
+ * Draw the pressure colour-bar using the current user-set scale.
  */
-function renderColorbar(data) {
-  const vmax = data._vmax || 1;
+function renderColorbar() {
+  const vmax = getPressScale();
   const cbDiv = document.getElementById('colorbar');
-  cbDiv.style.display = 'block';
 
   let canvas = cbDiv.querySelector('canvas');
   if (!canvas) {
@@ -747,16 +781,18 @@ function renderColorbar(data) {
 }
 
 /**
- * Update the vector key legend item with the max velocity from this run.
- * @param {number} velMaxCmyr  maximum asthenospheric flow speed, cm/yr
+ * Update all velocity legend labels to reflect the current user-set scale.
  */
-function updateVectorKey(velMaxCmyr) {
+function updateVelScaleLegend() {
+  const s = getVelScale();
+  const el1 = document.getElementById('plate-vel-vmax');
+  if (el1) el1.textContent = `${s} mm/yr`;
+  // Asthenospheric flow arrow key — only show after a run has produced results.
   const item = document.getElementById('vel-key-item');
-  if (!isFinite(velMaxCmyr) || velMaxCmyr === 0) { item.style.display = 'none'; return; }
-  item.style.display = 'flex';
-  // Arrow in the SVG represents the max speed; label shows that value.
-  document.getElementById('vel-key-label').textContent =
-    `max ${velMaxCmyr.toFixed(1)} cm/yr`;
+  if (item && lastResult) {
+    item.style.display = 'flex';
+    document.getElementById('vel-key-label').textContent = `${s} mm/yr`;
+  }
 }
 
 // ── Export ──────────────────────────────────────────────────────────────────
@@ -808,3 +844,74 @@ function exportCSV() {
 
 document.getElementById('btn-png').addEventListener('click', exportPNG);
 document.getElementById('btn-csv').addEventListener('click', exportCSV);
+
+// ── Scale input listeners ────────────────────────────────────────────────────
+
+document.getElementById('inp-press-scale').addEventListener('input', () => {
+  renderColorbar();
+  if (lastResult) renderPressure(lastResult);
+});
+
+document.getElementById('inp-vel-scale').addEventListener('input', () => {
+  updateVelScaleLegend();
+  if (_isEarth) {
+    // Earth models: re-render stored geometry data directly
+    if (_plateVelGrid.length) renderPlateVelocities(_plateVelGrid);
+    if (_trenchVelGrid.length) renderTrenchVelocities(_trenchVelGrid);
+  } else {
+    recomputePlateVelArrows();
+    recomputeTrenchVelArrows();
+  }
+  if (lastResult) renderVelocity(lastResult.velocity);
+});
+
+// ── Viscosity input: order-of-magnitude stepping ────────────────────────────
+
+const viscInput = document.getElementById('inp-visc');
+
+/** Format a viscosity value as clean scientific notation, e.g. "4e+20". */
+function _fmtVisc(v) {
+  return v.toExponential().replace(/\.?0+(e)/, '$1');
+}
+
+/** Step size = largest power of 10 that fits in the current value. */
+function _viscStep() {
+  const v = parseFloat(viscInput.value);
+  return (isFinite(v) && v > 0) ? Math.pow(10, Math.floor(Math.log10(v))) : 1e20;
+}
+
+/** Keep the step attribute in sync so the spinner buttons use the right increment. */
+function _syncViscStep() { viscInput.step = _viscStep(); }
+
+viscInput.addEventListener('focus', _syncViscStep);
+viscInput.addEventListener('input', _syncViscStep);
+
+viscInput.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  const v = parseFloat(viscInput.value);
+  if (!isFinite(v) || v <= 0) return;
+  const newV = v + (e.key === 'ArrowUp' ? 1 : -1) * _viscStep();
+  if (newV > 0) {
+    viscInput.value = _fmtVisc(newV);
+    viscInput.dispatchEvent(new Event('input'));
+    viscInput.dispatchEvent(new Event('change'));
+  }
+});
+
+_syncViscStep();  // initialise step on page load
+
+// ── Revert to geometry view when model parameters change ────────────────────
+// Rheology / basal BC
+['inp-visc', 'sel-bc'].forEach(id => {
+  document.getElementById(id).addEventListener('change', revertToGeometry);
+});
+// Velocity inputs (live — use 'input' so dragging/typing reverts immediately)
+['inp-euler-lat', 'inp-euler-lon', 'inp-euler-rate',
+ 'inp-trench-vew', 'inp-trench-vns'].forEach(id => {
+  document.getElementById(id).addEventListener('input', revertToGeometry);
+});
+
+// Initialise colorbar and legend labels immediately on page load.
+renderColorbar();
+updateVelScaleLegend();
