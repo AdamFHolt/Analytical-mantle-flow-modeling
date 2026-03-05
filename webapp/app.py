@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Flask server for the interactive mantle flow web app."""
 import sys
+import queue as _stdlib_queue
 import pathlib
 import threading
 import multiprocessing as mp
@@ -44,20 +45,37 @@ def _grid_worker(fc_dir, payload, cache, q):
 
 
 def _run_in_proc(target, args):
-    """Spawn a child process, block until it finishes or is cancelled."""
+    """Spawn a child process, block until it finishes or is cancelled.
+
+    Drains the queue while the process is running to avoid pipe-buffer
+    deadlock: if the subprocess puts more data than the OS pipe buffer
+    (~64 KB on macOS) before the main process reads, the feeder thread
+    in the subprocess blocks, preventing proc.join() from ever returning.
+    """
     global _active_proc
     q = _mp_ctx.Queue()
     proc = _mp_ctx.Process(target=target, args=args + (q,))
     with _proc_lock:
         _active_proc = proc
+    item = None
     try:
         proc.start()
+        # Read from the queue while the process is alive so the pipe
+        # never fills up.  Poll with a short timeout so we notice if
+        # the process is killed (cancelled) before it puts anything.
+        while True:
+            try:
+                item = q.get(timeout=0.5)
+                break
+            except _stdlib_queue.Empty:
+                if not proc.is_alive():
+                    break  # terminated without putting a result
         proc.join()
     finally:
         with _proc_lock:
             if _active_proc is proc:
                 _active_proc = None
-    return proc, q
+    return proc, item
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -81,10 +99,11 @@ def compute_route():
 def compute_solve():
     try:
         payload = request.json or {}
-        proc, q = _run_in_proc(_solve_worker, (str(FC_DIR), payload))
+        proc, item = _run_in_proc(_solve_worker, (str(FC_DIR), payload))
         if proc.exitcode != 0:
             return jsonify({'error': 'Computation cancelled.', 'cancelled': True}), 499
-        item = q.get_nowait()
+        if item is None:
+            return jsonify({'error': 'Computation cancelled.', 'cancelled': True}), 499
         if not item['ok']:
             return jsonify({'error': item['error'], 'traceback': item.get('tb', '')}), 500
         _compute_mod._cache = item['cache']
@@ -100,10 +119,11 @@ def compute_grid():
         payload = request.json or {}
         if _compute_mod._cache is None:
             return jsonify({'error': 'No cached solve — call /compute/solve first'}), 400
-        proc, q = _run_in_proc(_grid_worker, (str(FC_DIR), payload, _compute_mod._cache))
+        proc, item = _run_in_proc(_grid_worker, (str(FC_DIR), payload, _compute_mod._cache))
         if proc.exitcode != 0:
             return jsonify({'error': 'Computation cancelled.', 'cancelled': True}), 499
-        item = q.get_nowait()
+        if item is None:
+            return jsonify({'error': 'Computation cancelled.', 'cancelled': True}), 499
         if not item['ok']:
             return jsonify({'error': item['error'], 'traceback': item.get('tb', '')}), 500
         # Persist polygon cache and any other state updated in the subprocess.

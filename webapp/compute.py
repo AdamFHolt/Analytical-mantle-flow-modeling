@@ -79,8 +79,8 @@ def generate_simple_inp_files(width_deg: float, length_deg: float) -> None:
     lat_n =         width_deg  / 2.0
     lat_s =        -width_deg  / 2.0
 
-    n_ns = max(2, math.ceil(width_deg  / 10))  # segments along N–S edges
-    n_ew = max(2, math.ceil(length_deg / 10))  # segments along E–W edges
+    n_ns = max(2, math.ceil(width_deg  / 2.5))  # segments along N–S edges
+    n_ew = max(2, math.ceil(length_deg / 2.5))  # segments along E–W edges
 
     def fmt(*vals):
         return '\t'.join(str(v) for v in vals)
@@ -577,28 +577,48 @@ def _fast_outputgrids(spacing, lona, lata, lonb, latb, lono, lato,
     free_b  = np.isin(nd_grd, [100, 400])                   # True → free base
 
     vel_convert = 100.0 * 60.0 * 60.0 * 24.0 * 365.0
+    # f_grd = column-averaged pressure-driven coefficient (used as base for depth scaling)
     f_free  = coeff_g / 3.0  * (1.0 + thick / (8.0 * rad_km)) * vel_convert
     f_fixed = coeff_g / 12.0 * (1.0 + thick / rad_km)          * vel_convert
     f_grd   = np.where(free_b, f_free, f_fixed)
 
-    pfac = 1.0 - thick / (2.0 * rad_km)
+    # ── Depth-dependent velocity profile ──────────────────────────────────────
+    # ζ = normalised depth within the asthenosphere [0 = top, 1 = bottom]
+    # press_depth and alith are in metres; thick is in km.
+    z_asth_km = max(0.0, (press_depth - alith) * 1.0e-3)   # km below lithosphere
+    zeta      = np.clip(z_asth_km / thick, 0.0, 1.0)        # (nlat, nlon)
+
+    # Pressure-driven shape function (normalised so column-avg = 1):
+    #   free base  (v_plate top, dv/dz=0 bottom): 3ζ(2−ζ)/2
+    #   fixed base (v=0 at both boundaries):       6ζ(1−ζ)
+    dw_p = np.where(free_b, 1.5 * zeta * (2.0 - zeta), 6.0 * zeta * (1.0 - zeta))
+
+    # Plate/base-driven component at depth ζ:
+    #   free base:  v_plate uniform across column (Couette with free bottom)
+    #               spherical correction: (1 − z/R) vs column avg (1 − H/2R)
+    plate_sfac = 1.0 - z_asth_km / rad_km          # at depth z
+    pfac_avg   = 1.0 - thick / (2.0 * rad_km)      # column average (original pfac)
     fv   = 1.0 + thick / (6.0 * rad_km)
     fb   = 1.0 - thick / (6.0 * rad_km)
 
     def _asthen_vel(dP_ew, dP_ns):
+        # Pressure-driven: column-avg × depth shape function
+        vp_ew = -dP_ew * 1e3 * f_grd * dw_p
+        vp_ns = -dP_ns * 1e3 * f_grd * dw_p
+        # Plate/base-driven: depth-specific Couette profile
         p_ew = np.where(free_b,
-            plate_vel_ew * pfac,
-            0.5 * plate_vel_ew * fv + 0.5 * base_vel_ew * fb)
+            plate_vel_ew * plate_sfac,                               # free: uniform
+            plate_vel_ew * (1.0 - zeta) * fv + base_vel_ew * zeta * fb)  # fixed: linear
         p_ns = np.where(free_b,
-            plate_vel_ns * pfac,
-            0.5 * plate_vel_ns * fv + 0.5 * base_vel_ns * fb)
-        return -dP_ew * 1e3 * f_grd + p_ew, -dP_ns * 1e3 * f_grd + p_ns
+            plate_vel_ns * plate_sfac,
+            plate_vel_ns * (1.0 - zeta) * fv + base_vel_ns * zeta * fb)
+        return vp_ew + p_ew, vp_ns + p_ns
 
     avgvel_asthen_ew, avgvel_asthen_ns = _asthen_vel(dPdlon_grd, dPdlat_grd)
-    pdrivenvel_wall_ew = -dPwalldlon_grd * 1e3 * f_grd
-    pdrivenvel_wall_ns = -dPwalldlat_grd * 1e3 * f_grd
-    pdrivenvel_edge_ew = -dPedgedlon_grd * 1e3 * f_grd
-    pdrivenvel_edge_ns = -dPedgedlat_grd * 1e3 * f_grd
+    pdrivenvel_wall_ew = -dPwalldlon_grd * 1e3 * f_grd * dw_p
+    pdrivenvel_wall_ns = -dPwalldlat_grd * 1e3 * f_grd * dw_p
+    pdrivenvel_edge_ew = -dPedgedlon_grd * 1e3 * f_grd * dw_p
+    pdrivenvel_edge_ns = -dPedgedlat_grd * 1e3 * f_grd * dw_p
 
     # ── Trench velocities ─────────────────────────────────────────────────────
     trench_vels = np.empty((0, 4), float)
@@ -955,6 +975,66 @@ def _fast_buildmatrix(lona, lata, lonb, latb, gam, alpha, lono, lato,
     return pkernel
 
 
+def _fast_outputDP(lona, lata, lonb, latb, lono, lato, iwall, gam, alpha,
+                   n_segs, num_segs, pcoeff, rad_km,
+                   lon_subslab, lat_subslab, lon_wedge, lat_wedge,
+                   polarity, vtopl, vtopr, vt, dip_depth):
+    """
+    Vectorized replacement for functions.outputDP.
+
+    The original has O(n_obs × n_segs) scalar Python calls.  Here we loop over
+    source segments (n_segs iterations) and evaluate each Green's-function
+    kernel on all observation points at once via _findpressure_{edge,wall}_vec,
+    giving O(n_segs) NumPy calls instead.
+    """
+    n_obs = len(lon_wedge)
+    rad_diploc = rad_km - dip_depth / 1.0e3
+    z_factor   = rad_km / rad_diploc
+
+    lon_ss = np.asarray(lon_subslab, dtype=float)
+    lat_ss = np.asarray(lat_subslab, dtype=float)
+    lon_w  = np.asarray(lon_wedge,   dtype=float)
+    lat_w  = np.asarray(lat_wedge,   dtype=float)
+
+    sumpress_ss = np.zeros(n_obs)
+    sumpress_w  = np.zeros(n_obs)
+
+    for iset in range(n_segs):
+        lonaa = float(lona[iset]); lataa = float(lata[iset])
+        lonbb = float(lonb[iset]); latbb = float(latb[iset])
+        gm    = float(gam[iset])
+        pc    = float(pcoeff[iset])
+
+        if iset >= num_segs:   # slab-wall kernel
+            alp = float(alpha[iset])
+            sumpress_ss += _findpressure_wall_vec(
+                lon_ss, lat_ss, lonaa, lataa, lonbb, latbb, gm, alp, rad_km) * pc
+            sumpress_w  += _findpressure_wall_vec(
+                lon_w,  lat_w,  lonaa, lataa, lonbb, latbb, gm, alp, rad_km) * pc
+        else:                  # plate-edge kernel
+            sumpress_ss += _findpressure_edge_vec(
+                lon_ss, lat_ss, lonaa, lataa, lonbb, latbb, gm, rad_km) * pc
+            sumpress_w  += _findpressure_edge_vec(
+                lon_w,  lat_w,  lonaa, lataa, lonbb, latbb, gm, rad_km) * pc
+
+    ss_z = sumpress_ss * z_factor
+    w_z  = sumpress_w  * z_factor
+
+    vel_term = 1.0e-3 / (365.0 * 24.0 * 60.0 * 60.0)
+    DP = np.zeros((n_obs, 7))
+    DP[:, 0] = np.asarray(lono, dtype=float)[:n_obs]
+    DP[:, 1] = np.asarray(lato, dtype=float)[:n_obs]
+    DP[:, 2] = ss_z / 1.0e6
+    DP[:, 3] = w_z  / 1.0e6
+    DP[:, 4] = (ss_z - w_z) / 1.0e6
+    DP[:, 5] = np.abs(np.asarray(vtopl, dtype=float)[:n_obs]
+                      - np.asarray(vtopr, dtype=float)[:n_obs]) / vel_term
+    pol = np.asarray(polarity, dtype=float)[:n_obs]
+    vt_arr = np.asarray(vt, dtype=float)[:n_obs]
+    DP[:, 6] = np.where(pol == 1, -vt_arr / vel_term, vt_arr / vel_term)
+    return DP
+
+
 def _run_outputgrids(amu, press_depth, grid_spacing, pcoeff, geom):
     """Call outputgrids + outputDP with the given pcoeff and geometry cache."""
     coefftr1 = (_AH1 - _ALITH)    ** 2 / amu
@@ -984,7 +1064,7 @@ def _run_outputgrids(amu, press_depth, grid_spacing, pcoeff, geom):
         geom['rigid_vew'], geom['rigid_vns'], _AH1, geom['ndomain'],
     )
 
-    DP = outputDP(
+    DP = _fast_outputDP(
         geom['lona'], geom['lata'], geom['lonb'], geom['latb'],
         geom['lono'], geom['lato'], geom['iwall'], geom['gam'], geom['alpha'],
         geom['n_segs'], geom['num_segs'], pcoeff, _RAD_KM,
@@ -992,7 +1072,6 @@ def _run_outputgrids(amu, press_depth, grid_spacing, pcoeff, geom):
         geom['lon_wedge'], geom['lat_wedge'],
         geom['polarity'], geom['vtopl'], geom['vtopr'], geom['vt'], _DIP_DEPTH,
     )
-
     return P_out, vel_ew, vel_ns, DP, lons_grd, lats_grd
 
 
@@ -1008,7 +1087,7 @@ def solve_only(payload: dict) -> dict:
     model                 = payload.get('model',  'LargeSP_RetreatingTrench')
     amu                   = float(payload.get('viscosity',              3e20))
     basal_bc              =       payload.get('basal_bc',             'free')
-    flux_slab             = int(  payload.get('flux_slab',               2))
+    flux_slab             = int(  payload.get('flux_slab',               0))
     flux_width            = float(payload.get('flux_width',        500_000.0))
     flux_alpha            = float(payload.get('flux_alpha',              0.0))
     no_flux_for_slabtails = int(  payload.get('no_flux_for_slabtails',   1))

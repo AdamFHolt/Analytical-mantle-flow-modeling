@@ -85,14 +85,14 @@ const svg = d3.select('#map-svg');
 // Defs: arrowhead markers
 const defs0 = svg.append('defs');
 
-// Asthenospheric flow arrows (yellow)
+// Asthenospheric flow arrows (dark grey)
 defs0.append('marker')
   .attr('id', 'arrowhead')
   .attr('viewBox', '0 -4 8 8')
   .attr('refX', 7).attr('refY', 0)
-  .attr('markerWidth', 4).attr('markerHeight', 4)
+  .attr('markerWidth', 3).attr('markerHeight', 3)
   .attr('orient', 'auto')
-  .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#ffee80');
+  .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#555');
 
 // Plate velocity arrows (arrowhead inherits parent line stroke via context-stroke)
 defs0.append('marker')
@@ -383,8 +383,12 @@ selModel.addEventListener('change', () => {
   document.getElementById('simple-dims').style.display = (selModel.value === 'Simple') ? 'block' : 'none';
   document.getElementById('plate-vel-bar').style.display = 'none';
   document.getElementById('plate-vel-arrow-key').style.display = 'none';
+  const _lkl = document.getElementById('lk-plate-vel-line');
+  if (_lkl) _lkl.setAttribute('stroke', '#c0c8e0');
   document.getElementById('btn-pv-png').disabled = true;
   document.getElementById('btn-pv-csv').disabled = true;
+  document.getElementById('depth-control').style.display = 'none';
+  inpDepth.value = 330; document.getElementById('depth-val').textContent = '330';
   lastResult = null;
   loadGeometry(selModel.value);
 });
@@ -396,8 +400,8 @@ let _lastBounds = null;
 
 // Per-model timing estimates (seconds) split into solve vs grid phases.
 const MODEL_EST = {
-  'Simple':                         { solve:  5, grid:  8 },
-  'Slab2.0Final_NoJapTail_nnr_FS':  { solve: 30, grid: 30 },
+  'Simple':                         { solve:  2, grid:  2 },
+  'Slab2.0Final_NoJapTail_nnr_FS':  { solve:  4, grid:  5 },
 };
 
 const loadingLabel = document.getElementById('loading-label');
@@ -587,6 +591,10 @@ function renderResult(data) {
   renderVelocity(data.velocity);
   renderColorbar();
   updateVelScaleLegend();
+  // Switch legend arrow to mantle-flow colour.
+  const line = document.getElementById('lk-plate-vel-line');
+  if (line) line.setAttribute('stroke', '#555');
+  document.getElementById('depth-control').style.display = 'block';
 }
 
 /**
@@ -600,10 +608,16 @@ function revertToGeometry() {
   gVelocity.selectAll('.vel-arrow').remove();
   gPlateVel.style('display', null);
   gTrenchVel.style('display', null);
-  document.getElementById('vel-key-item').style.display = 'none';
   document.getElementById('colorbar').style.display = 'none';
   document.getElementById('btn-png').disabled = true;
   document.getElementById('btn-csv').disabled = true;
+  // Restore legend arrow to plate-velocity colour.
+  const line = document.getElementById('lk-plate-vel-line');
+  if (line) line.setAttribute('stroke', '#c0c8e0');
+  const dc = document.getElementById('depth-control');
+  dc.style.display = 'none';
+  inpDepth.value = 330;
+  document.getElementById('depth-val').textContent = '330';
   setStatus('');
 }
 
@@ -847,12 +861,6 @@ function updateVelScaleLegend() {
   if (el1) el1.textContent = `${s}`;
   const el2 = document.getElementById('plate-vel-arrow-label');
   if (el2) el2.textContent = `${s} mm/yr`;
-  // Asthenospheric flow arrow key — only show after a run has produced results.
-  const item = document.getElementById('vel-key-item');
-  if (item && lastResult) {
-    item.style.display = 'flex';
-    document.getElementById('vel-key-label').textContent = `${s} mm/yr`;
-  }
 }
 
 // ── Export ──────────────────────────────────────────────────────────────────
@@ -877,7 +885,7 @@ function _svgExportSetup(svgEl, pw, ph) {
     '.boundary-0{stroke:#60a0ff}' +
     '.boundary-1{stroke:#ff6040;stroke-width:2.2}' +
     '.boundary-2{stroke:#a0c860}' +
-    '.vel-arrow{stroke:#ffee80;stroke-width:2;fill:none;marker-end:url(#arrowhead)}' +
+    '.vel-arrow{stroke:#555;stroke-width:2.5;fill:none;marker-end:url(#arrowhead)}' +
     '.plate-vel-arrow{stroke-width:2.5;fill:none}' +
     '.trench-vel-arrow{stroke:#00e8ff;stroke-width:2.5;fill:none;marker-end:url(#trench-arrowhead)}' +
     '.trench-tooth{fill:#ff6040;stroke:none}' +
@@ -1128,8 +1136,12 @@ function _reloadSimpleGeometry() {
   document.getElementById('colorbar').style.display = 'none';
   document.getElementById('plate-vel-bar').style.display = 'none';
   document.getElementById('plate-vel-arrow-key').style.display = 'none';
+  const _lkl = document.getElementById('lk-plate-vel-line');
+  if (_lkl) _lkl.setAttribute('stroke', '#c0c8e0');
   document.getElementById('btn-pv-png').disabled = true;
   document.getElementById('btn-pv-csv').disabled = true;
+  document.getElementById('depth-control').style.display = 'none';
+  inpDepth.value = 330; document.getElementById('depth-val').textContent = '330';
   lastResult = null;
   setStatus('');
   loadGeometry(selModel.value);

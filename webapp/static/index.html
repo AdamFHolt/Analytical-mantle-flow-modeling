@@ -68,24 +68,10 @@
               <path d="M0,-4L8,0L0,4" fill="#c0c8e0"/>
             </marker>
           </defs>
-          <line x1="2" y1="7" x2="30" y2="7" stroke="#c0c8e0" stroke-width="1.5"
+          <line id="lk-plate-vel-line" x1="2" y1="7" x2="30" y2="7" stroke="#c0c8e0" stroke-width="1.5"
                 marker-end="url(#lk-plate-vel)"/>
         </svg>
         <span id="plate-vel-arrow-label" style="white-space:nowrap">— mm/yr</span>
-      </div>
-      <!-- Asthenospheric flow arrow scale (shown after run) -->
-      <div class="legend-item" id="vel-key-item" style="display:none;margin-top:2px">
-        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
-          <defs>
-            <marker id="lk-arrow" viewBox="0 -4 8 8" refX="7" refY="0"
-                    markerWidth="3" markerHeight="3" orient="auto">
-              <path d="M0,-4L8,0L0,4" fill="#ffee80"/>
-            </marker>
-          </defs>
-          <line x1="2" y1="7" x2="30" y2="7" stroke="#ffee80" stroke-width="1.2"
-                marker-end="url(#lk-arrow)"/>
-        </svg>
-        <span id="vel-key-label" style="white-space:nowrap">— cm/yr</span>
       </div>
     </div>
   </div>
@@ -156,16 +142,15 @@
         </div>
       </div>
     </div>
-    <div class="control-group">
+    <div class="control-group" id="depth-control" style="display:none">
       <label>Plot depth: <span id="depth-val">330</span> km</label>
       <input type="range" id="inp-depth" min="80" max="660" step="10" value="330">
     </div>
     <div class="control-group">
       <label>Grid resolution</label>
       <select id="sel-res">
-        <option value="10">Coarse (10°) — fast</option>
-        <option value="5" selected>Standard (5°)</option>
-        <option value="2.5">Fine (2.5°) — slow</option>
+        <option value="5" selected>Coarse (5°)</option>
+        <option value="2">Fine (2°) — slow</option>
       </select>
     </div>
 
