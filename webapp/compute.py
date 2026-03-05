@@ -34,7 +34,7 @@ from functions import (
     pressurepoints, buildmatrix, buildvector, outputgrids, outputDP,
     partition_polygon_points,
 )
-from euler_pole import EulerPole
+from euler_pole import EulerPole, sph2cart as _ep_sph2cart, local_coords as _ep_local_coords
 
 # ── Fixed physical constants (match global_pressure_withPressurePlot.py) ──────
 _RAD_KM      = 6378.0
@@ -51,7 +51,8 @@ _PRESS_DEPTH = 330.0e3       # depth at which pressure field is evaluated, m (de
 _DIP_DEPTH   = 330.0e3       # depth for DP calculation, m
 
 # ── Module-level cache ────────────────────────────────────────────────────────
-_cache = None   # set after first successful solve
+_cache     = None   # set after first successful solve
+_poly_cache = {}    # (id(bound_ind), spacing) → (polygons, polygon_points)
 
 # ── Earth / real-plate models (velocities come entirely from input files) ─────
 _EARTH_MODELS = {'Slab2.0Final_NoJapTail_nnr_FS'}
@@ -318,6 +319,23 @@ def _serialise_outputs(P_out, vel_ew, vel_ns, DP, iwall,
     }
 
 
+_EP_EARTH_RADIUS_KM = 6371.009  # must match EulerPole.earth_radius
+
+
+def _euler_vel_arr(pole_lat, pole_lon, pole_rate, lats, lons):
+    """
+    Vectorized Euler-pole velocity.  lats/lons are 1-D arrays.
+    Returns (east_cmyr, north_cmyr) arrays (mm/yr → cm/yr via ×0.1).
+    """
+    ox, oy, oz = _ep_sph2cart(pole_lat, pole_lon, np.radians(-pole_rate))
+    omega = np.array([ox, oy, oz])                      # (3,)
+    x, y, z = _ep_sph2cart(lats, lons, _EP_EARTH_RADIUS_KM)
+    r = np.column_stack([x, y, z])                      # (N, 3)
+    v = np.cross(omega, r)                              # (N, 3)
+    east, north, _ = _ep_local_coords(lats, lons, v[:, 0], v[:, 1], v[:, 2])
+    return east * 0.1, north * 0.1                      # cm/yr
+
+
 def _fast_outputgrids(spacing, lona, lata, lonb, latb, lono, lato,
                       iwall, gam, alpha, amu, a_asth,
                       n_segs, num_segs, pcoeff,
@@ -510,90 +528,77 @@ def _fast_outputgrids(spacing, lona, lata, lonb, latb, lono, lato,
     dPedgedlon_grd = cos_lat * _fac * dPedl
     dPedgedlat_grd =           _fac * dPedb
 
-    # ── Domain assignment ─────────────────────────────────────────────────────
-    polygons, polygon_points = partition_polygon_points(
-        lons, lats, bound_ind,
-        lona, lata, lonb, latb,
-        domain_bounds, rad_km,
-    )
+    # ── Domain assignment (cached by spacing; geometry is fixed per _cache) ──
+    _pk = spacing
+    if _pk not in _poly_cache:
+        _poly_cache[_pk] = partition_polygon_points(
+            lons, lats, bound_ind,
+            lona, lata, lonb, latb,
+            domain_bounds, rad_km,
+        )
+    polygons, polygon_points = _poly_cache[_pk]
 
-    # ── Plate velocities (loop over grid — not a performance bottleneck) ───────
+    # ── Plate/base velocities (vectorised, grouped by domain) ─────────────────
+    poly_idx     = polygon_points.astype(int)   # (nlat, nlon)
     plate_vel_ew = np.zeros((nlat, nlon))
     plate_vel_ns = np.zeros((nlat, nlon))
     base_vel_ew  = np.zeros((nlat, nlon))
     base_vel_ns  = np.zeros((nlat, nlon))
 
-    for j in range(nlon):
-        for i in range(nlat):
-            domain = int(polygon_points[i, j])
-            if ndomain[domain - 1] == 500:
-                plate_vel_ew[i, j] = rigid_vew[domain - 1] * 0.1
-                plate_vel_ns[i, j] = rigid_vns[domain - 1] * 0.1
-            else:
-                pole = EulerPole(
-                    lat=pole_top_lat[domain - 1],
-                    lon=pole_top_lon[domain - 1],
-                    rate=pole_top_rate[domain - 1],
-                )
-                vel_azi, vel_mag = pole.velocity(lats[i], lons[j])
-                plate_vel_ew[i, j] = vel_mag * np.sin(np.deg2rad(vel_azi)) * 0.1
-                plate_vel_ns[i, j] = vel_mag * np.cos(np.deg2rad(vel_azi)) * 0.1
-            if ndomain[domain - 1] in (200, 300):
-                pb = EulerPole(
-                    lat=pole_bott_lat[domain - 1],
-                    lon=pole_bott_lon[domain - 1],
-                    rate=pole_bott_rate[domain - 1],
-                )
-                vb_azi, vb_mag = pb.velocity(lats[i], lons[j])
-                base_vel_ew[i, j] = vb_mag * np.sin(np.deg2rad(vb_azi)) * 0.1
-                base_vel_ns[i, j] = vb_mag * np.cos(np.deg2rad(vb_azi)) * 0.1
+    for dom_idx in np.unique(poly_idx):
+        mask = (poly_idx == dom_idx)
+        dom  = dom_idx - 1
+        nd   = ndomain[dom]
+        lats_m = lat_grd[mask]
+        lons_m = lon_grd[mask]
+        if nd == 500:
+            plate_vel_ew[mask] = rigid_vew[dom] * 0.1
+            plate_vel_ns[mask] = rigid_vns[dom] * 0.1
+        else:
+            ew, ns = _euler_vel_arr(
+                pole_top_lat[dom], pole_top_lon[dom], pole_top_rate[dom],
+                lats_m, lons_m,
+            )
+            plate_vel_ew[mask] = ew
+            plate_vel_ns[mask] = ns
+        if nd in (200, 300):
+            ew_b, ns_b = _euler_vel_arr(
+                pole_bott_lat[dom], pole_bott_lon[dom], pole_bott_rate[dom],
+                lats_m, lons_m,
+            )
+            base_vel_ew[mask] = ew_b
+            base_vel_ns[mask] = ns_b
 
-    # ── Asthenospheric velocities (loop over grid) ────────────────────────────
-    avgvel_asthen_ew   = np.zeros((nlat, nlon))
-    avgvel_asthen_ns   = np.zeros((nlat, nlon))
-    pdrivenvel_wall_ew = np.zeros((nlat, nlon))
-    pdrivenvel_wall_ns = np.zeros((nlat, nlon))
-    pdrivenvel_edge_ew = np.zeros((nlat, nlon))
-    pdrivenvel_edge_ns = np.zeros((nlat, nlon))
+    # ── Asthenospheric velocities (fully vectorised, no Python loops) ──────────
+    nd_grd  = np.array(ndomain, dtype=int)[poly_idx - 1]   # (nlat, nlon)
+    slab_bc = np.isin(nd_grd, [200, 400])                   # True → slab-tail coeff
+    thick   = np.where(slab_bc, (ah1 - 2.0*alith)*1.0e-3, (ah1 - alith)*1.0e-3)
+    coeff_g = np.where(slab_bc, coefftr2, coefftr1)
+    free_b  = np.isin(nd_grd, [100, 400])                   # True → free base
 
-    vel_convert = 100.0 * 60.0 * 60.0 * 24.0 * 365.0   # m/s → cm/yr
+    vel_convert = 100.0 * 60.0 * 60.0 * 24.0 * 365.0
+    f_free  = coeff_g / 3.0  * (1.0 + thick / (8.0 * rad_km)) * vel_convert
+    f_fixed = coeff_g / 12.0 * (1.0 + thick / rad_km)          * vel_convert
+    f_grd   = np.where(free_b, f_free, f_fixed)
 
-    for j in range(nlon):
-        for i in range(nlat):
-            domain = int(polygon_points[i, j])
-            if ndomain[domain - 1] in (200, 400):
-                asth_thick = (ah1 - 2.0 * alith) * 1.0e-3
-                coeff      = coefftr2
-            else:
-                asth_thick = (ah1 - alith) * 1.0e-3
-                coeff      = coefftr1
+    pfac = 1.0 - thick / (2.0 * rad_km)
+    fv   = 1.0 + thick / (6.0 * rad_km)
+    fb   = 1.0 - thick / (6.0 * rad_km)
 
-            dl  = dPdlon_grd[i, j];     db  = dPdlat_grd[i, j]
-            dwl = dPwalldlon_grd[i, j]; dwb = dPwalldlat_grd[i, j]
-            del_ = dPedgedlon_grd[i, j]; deb = dPedgedlat_grd[i, j]
+    def _asthen_vel(dP_ew, dP_ns):
+        p_ew = np.where(free_b,
+            plate_vel_ew * pfac,
+            0.5 * plate_vel_ew * fv + 0.5 * base_vel_ew * fb)
+        p_ns = np.where(free_b,
+            plate_vel_ns * pfac,
+            0.5 * plate_vel_ns * fv + 0.5 * base_vel_ns * fb)
+        return -dP_ew * 1e3 * f_grd + p_ew, -dP_ns * 1e3 * f_grd + p_ns
 
-            if ndomain[domain - 1] in (100, 400):
-                f = (coeff / 3.0) * (1.0 + asth_thick / (8.0 * rad_km)) * vel_convert
-                pew = plate_vel_ew[i, j]; pns = plate_vel_ns[i, j]
-                pfac = 1.0 - asth_thick / (2.0 * rad_km)
-                avgvel_asthen_ew[i, j]   = -dl  * 1e3 * f + pew * pfac
-                avgvel_asthen_ns[i, j]   = -db  * 1e3 * f + pns * pfac
-                pdrivenvel_wall_ew[i, j] = -dwl * 1e3 * f
-                pdrivenvel_wall_ns[i, j] = -dwb * 1e3 * f
-                pdrivenvel_edge_ew[i, j] = -del_ * 1e3 * f
-                pdrivenvel_edge_ns[i, j] = -deb * 1e3 * f
-            else:
-                f  = (coeff / 12.0) * (1.0 + asth_thick / rad_km) * vel_convert
-                fv = 1.0 + asth_thick / (6.0 * rad_km)
-                fb = 1.0 - asth_thick / (6.0 * rad_km)
-                pew = plate_vel_ew[i, j]; pns = plate_vel_ns[i, j]
-                bew = base_vel_ew[i, j];  bns = base_vel_ns[i, j]
-                avgvel_asthen_ew[i, j]   = -dl  * 1e3 * f + 0.5 * pew * fv + 0.5 * bew * fb
-                avgvel_asthen_ns[i, j]   = -db  * 1e3 * f + 0.5 * pns * fv + 0.5 * bns * fb
-                pdrivenvel_wall_ew[i, j] = -dwl * 1e3 * f
-                pdrivenvel_wall_ns[i, j] = -dwb * 1e3 * f
-                pdrivenvel_edge_ew[i, j] = -del_ * 1e3 * f
-                pdrivenvel_edge_ns[i, j] = -deb * 1e3 * f
+    avgvel_asthen_ew, avgvel_asthen_ns = _asthen_vel(dPdlon_grd, dPdlat_grd)
+    pdrivenvel_wall_ew = -dPwalldlon_grd * 1e3 * f_grd
+    pdrivenvel_wall_ns = -dPwalldlat_grd * 1e3 * f_grd
+    pdrivenvel_edge_ew = -dPedgedlon_grd * 1e3 * f_grd
+    pdrivenvel_edge_ns = -dPedgedlat_grd * 1e3 * f_grd
 
     # ── Trench velocities ─────────────────────────────────────────────────────
     trench_vels = np.empty((0, 4), float)
@@ -629,6 +634,325 @@ def _fast_outputgrids(spacing, lona, lata, lonb, latb, lono, lato,
         lat_grd,
         polygons,
     )
+
+
+# ── Vectorized helpers for _fast_buildmatrix ──────────────────────────────────
+_PI = math.pi
+
+
+def _hav_km(lon1, lat1, lon2, lat2, rad_km):
+    """Haversine distance in km; inputs may be scalars or arrays (degrees)."""
+    lon1r = np.radians(lon1); lat1r = np.radians(lat1)
+    lon2r = np.radians(lon2); lat2r = np.radians(lat2)
+    dlat  = lat2r - lat1r;    dlon  = lon2r - lon1r
+    a = (np.sin(dlat / 2.0) ** 2
+         + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2.0) ** 2)
+    return 2.0 * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0))) * rad_km
+
+
+def _project_vec(lon1_rad, lat1_rad, azim, len_ratio):
+    """Vectorized project_to_point. All inputs may be arrays. Returns (lon_rad, lat_rad)."""
+    lat2 = np.arcsin(
+        np.sin(lat1_rad) * np.cos(len_ratio)
+        + np.cos(lat1_rad) * np.sin(len_ratio) * np.cos(azim)
+    )
+    lon2 = lon1_rad + np.arctan2(
+        np.sin(azim) * np.sin(len_ratio) * np.cos(lat1_rad),
+        np.cos(len_ratio) - np.sin(lat1_rad) * np.sin(lat2),
+    )
+    lon2 = (lon2 + 2.0 * _PI) % (2.0 * _PI)
+    return lon2, lat2
+
+
+def _midpoint_arr(latA, lonA, latB, lonB):
+    """Vectorized midpoint; inputs may be scalars or arrays (degrees). Returns (lat_deg, lon_deg)."""
+    lonA_r = np.radians(lonA); lonB_r = np.radians(lonB)
+    latA_r = np.radians(latA); latB_r = np.radians(latB)
+    dLon   = lonB_r - lonA_r
+    Bx     = np.cos(latB_r) * np.cos(dLon)
+    By     = np.cos(latB_r) * np.sin(dLon)
+    latC   = np.arctan2(np.sin(latA_r) + np.sin(latB_r),
+                        np.sqrt((np.cos(latA_r) + Bx) ** 2 + By ** 2))
+    lonC   = lonA_r + np.arctan2(By, np.cos(latA_r) + Bx)
+    lonC   = (lonC + 3.0 * _PI) % (2.0 * _PI) - _PI
+    return np.degrees(latC), np.degrees(lonC)
+
+
+def _findpressure_edge_vec(lonobs, latobs, lonaa, lataa, lonbb, latbb, gm, rad_km):
+    """Vectorized findpressure_edge. lonobs/latobs may be arrays; all other args scalars."""
+    latmid, lonmid = _midpoint_arr(lataa, lonaa, latbb, lonbb)
+    dist   = _hav_km(lonmid, latmid, lonobs, latobs, rad_km)
+    angle  = dist / rad_km
+    rad    = rad_km * 1.0e3
+
+    A_pt     = -gm / _PI
+    shift_pt = (-2.0 * gm / _PI) * (1.0 + math.log(rad * math.sqrt(2.0) / gm))
+    Ppt_avg  = A_pt * (math.log(2.0) - 1.0)
+
+    dista = _hav_km(lonaa, lataa, lonobs, latobs, rad_km) * 1.0e3
+    distb = _hav_km(lonbb, latbb, lonobs, latobs, rad_km) * 1.0e3
+
+    coshlam = 0.5 / gm * (dista + distb)
+    sinhlam = np.sqrt(np.maximum(coshlam ** 2 - 1.0, 0.0))
+    cossig  = np.clip(0.5 / gm * (dista - distb), -1.0, 1.0)
+    sinsig  = np.sqrt(1.0 - cossig ** 2)
+
+    xf = gm * coshlam * cossig
+    yf = gm * sinhlam * sinsig
+    yf = np.where(yf == 0.0, gm * 1.0e-10, yf)
+    x  = xf / gm;  y = yf / gm
+
+    P_plane = (gm / _PI) * (
+        y * (np.arctan((x - 1.0) / y) - np.arctan((x + 1.0) / y))
+        + 0.5 * (x - 1.0) * np.log((x - 1.0) ** 2 + y ** 2)
+        - 0.5 * (x + 1.0) * np.log((x + 1.0) ** 2 + y ** 2)
+    )
+    P_plane -= A_pt * angle ** 2 / 4.0
+    P_plane -= shift_pt
+
+    angle_s  = np.where(np.cos(angle) == 1.0, 1.0e-10, angle)
+    P_sphere = A_pt * np.log(1.0 - np.cos(angle_s))
+    P_xy     = 2.0 * A_pt * (np.log(angle_s) - math.log(math.sqrt(2.0)))
+    P_xy    -= A_pt * angle ** 2 / 4.0
+
+    return P_plane - P_xy + P_sphere - Ppt_avg
+
+
+def _findpressure_wall_vec(lonobs, latobs, lonaa, lataa, lonbb, latbb, gm, alp, rad_km):
+    """Vectorized findpressure_wall. lonobs/latobs may be arrays; all other args scalars."""
+    latmid, lonmid = _midpoint_arr(lataa, lonaa, latbb, lonbb)
+    angle  = _hav_km(float(lonmid), float(latmid), lonobs, latobs, rad_km) / rad_km
+    alp_n  = (alp + 2.0 * _PI) % (2.0 * _PI)
+    rad    = rad_km * 1.0e3
+    A_pt   = gm / (4.0 * rad)
+
+    lat_rad  = np.radians(latobs)
+    lon_rad  = (np.radians(lonobs - float(lonmid) - 180.0) + 2.0 * _PI) % (2.0 * _PI)
+    dlat_rad = math.radians(90.0 - float(latmid))
+    lons_t   = np.arctan2(
+        np.sin(lon_rad),
+        np.tan(lat_rad) * math.sin(dlat_rad) + np.cos(lon_rad) * math.cos(dlat_rad),
+    )
+    pt_azim = ((lons_t + alp_n) + 2.0 * _PI) % (2.0 * _PI)
+
+    dista  = _hav_km(lonaa, lataa, lonobs, latobs, rad_km) * 1.0e3
+    distb  = _hav_km(lonbb, latbb, lonobs, latobs, rad_km) * 1.0e3
+    coshlam = 0.5 / gm * (dista + distb)
+    sinhlam = np.sqrt(np.maximum(coshlam ** 2 - 1.0, 0.0))
+    cossig  = np.clip(0.5 / gm * (dista - distb), -1.0, 1.0)
+    sinsig  = np.sqrt(1.0 - cossig ** 2)
+    sinsig  = np.where(pt_azim <= _PI, -sinsig, sinsig)
+
+    t       = coshlam - sinhlam
+    P_plane = (gm * t * sinsig
+               - (1.0 / 3.0) * gm * t ** 3 * (3.0 * sinsig * cossig ** 2 - sinsig ** 3))
+
+    angle_s  = np.where(np.cos(angle) == 1.0, 1.0e-10, angle)
+    P_sphere = A_pt * gm * np.sin(-pt_azim) * (np.sin(angle_s) / (1.0 - np.cos(angle_s)))
+    P_xy     = A_pt * gm * 2.0 * (1.0 / angle_s) * np.sin(-pt_azim)
+
+    return P_plane - P_xy + P_sphere
+
+
+def _calcvel_wall_vec(lonobsa, latobsa, lonobsb, latobsb,
+                      azimuth_j, lonaa, lataa, lonbb, latbb,
+                      gm_src, alp_src, dsegtr, elit_j, ebig_j, side, rad_km):
+    """
+    Vectorized calcvel_wall.
+    lonobsa/b, latobsa/b, azimuth_j, elit_j, ebig_j: arrays (n_segs,)
+    All source-segment args (lonaa/b, lataa/b, gm_src, alp_src): scalars.
+    side: scalar (1=right, 0=left).
+    """
+    # Observation segment midpoints
+    latobs_mid, lonobs_mid = _midpoint_arr(latobsa, lonobsa, latobsb, lonobsb)
+    # Source midpoint (scalar)
+    lat_src_mid, lon_src_mid = _midpoint_arr(lataa, lonaa, latbb, lonbb)
+
+    angle = _hav_km(lonobs_mid, latobs_mid, float(lon_src_mid), float(lat_src_mid), rad_km) / rad_km
+
+    thresh = 0.5 * (12.5 * 0.5 * dsegtr * 1.0e3 + 1500.0e3)
+    near   = (angle * rad_km * 1.0e3) <= thresh
+
+    # ── Near (planar) branch ───────────────────────────────────────────────────
+    gamma_p = 1.0e3 * _hav_km(lonobsa, latobsa, lonobsb, latobsb, rad_km) / 2.0
+
+    da_a = _hav_km(lonaa, lataa, lonobsa, latobsa, rad_km) * 1.0e3
+    db_a = _hav_km(lonbb, latbb, lonobsa, latobsa, rad_km) * 1.0e3
+    coshlama = 0.5 / gm_src * (da_a + db_a)
+    sinhlama = np.sqrt(np.maximum(coshlama ** 2 - 1.0, 0.0))
+    cossiga  = np.clip(0.5 / gm_src * (da_a - db_a), -1.0, 1.0)
+    sinsiga  = np.sqrt(1.0 - cossiga ** 2)
+
+    da_b = _hav_km(lonaa, lataa, lonobsb, latobsb, rad_km) * 1.0e3
+    db_b = _hav_km(lonbb, latbb, lonobsb, latobsb, rad_km) * 1.0e3
+    coshlamb = 0.5 / gm_src * (da_b + db_b)
+    sinhlamb = np.sqrt(np.maximum(coshlamb ** 2 - 1.0, 0.0))
+    cossigb  = np.clip(0.5 / gm_src * (da_b - db_b), -1.0, 1.0)
+    sinsigb  = np.sqrt(1.0 - cossigb ** 2)
+
+    explama  = coshlama - sinhlama
+    explamb  = coshlamb - sinhlamb
+    safe_gp  = np.where(gamma_p == 0.0, 1.0e-30, gamma_p)
+    fvel_plane = (
+        gm_src * (explama * cossiga - explamb * cossigb) / (2.0 * safe_gp)
+        - (1.0 / 3.0) * gm_src * explama ** 3 * (cossiga ** 3 - 3.0 * cossiga * sinsiga ** 2) / (2.0 * safe_gp)
+        + (1.0 / 3.0) * gm_src * explamb ** 3 * (cossigb ** 3 - 3.0 * cossigb * sinsigb ** 2) / (2.0 * safe_gp)
+    )
+
+    # ── Far (spherical) branch ─────────────────────────────────────────────────
+    lr_close = elit_j / (rad_km * 1.0e3)
+    ebig_f   = elit_j + 1.0e3
+    lr_far   = ebig_f / (rad_km * 1.0e3)
+    pt_azim  = azimuth_j + (_PI / 2.0 if side == 1 else -_PI / 2.0)
+
+    lon_close, lat_close = _project_vec(np.radians(lonobs_mid), np.radians(latobs_mid), pt_azim, lr_close)
+    lon_far,   lat_far   = _project_vec(np.radians(lonobs_mid), np.radians(latobs_mid), pt_azim, lr_far)
+
+    Pclose = _findpressure_wall_vec(
+        np.degrees(lon_close), np.degrees(lat_close),
+        lonaa, lataa, lonbb, latbb, gm_src, alp_src, rad_km,
+    )
+    Pfar = _findpressure_wall_vec(
+        np.degrees(lon_far), np.degrees(lat_far),
+        lonaa, lataa, lonbb, latbb, gm_src, alp_src, rad_km,
+    )
+    if side == 1:
+        fvel_sphere = (Pfar - Pclose) / (ebig_f - elit_j)
+    else:
+        fvel_sphere = (Pclose - Pfar) / (ebig_f - elit_j)
+
+    return np.where(near, fvel_plane, fvel_sphere)
+
+
+def _fast_buildmatrix(lona, lata, lonb, latb, gam, alpha, lono, lato,
+                      iwall, idl, idr, n_segs, num_segs,
+                      coeff1, coeff2, coefftr1, coefftr2,
+                      ndomain, epslit, dsegtr, rad_km, alith, ah1, eps_fact):
+    """
+    Vectorized replacement for functions.buildmatrix.
+
+    Keeps the outer for-iset loop (source segments); the inner for-jobs loop
+    (observation segments) is replaced by NumPy operations over all n_segs
+    entries simultaneously.  Gives a ~n_segs× speedup on the matrix build.
+    """
+    gam_j   = np.asarray(gam,   dtype=float)
+    alpha_j = np.asarray(alpha, dtype=float)
+    iwall_j = np.asarray(iwall, dtype=int)
+    lono_j  = np.asarray(lono,  dtype=float)
+    lato_j  = np.asarray(lato,  dtype=float)
+    lona_j  = np.asarray(lona,  dtype=float)
+    lata_j  = np.asarray(lata,  dtype=float)
+    lonb_j  = np.asarray(lonb,  dtype=float)
+    latb_j  = np.asarray(latb,  dtype=float)
+    idl_j   = np.asarray(idl,   dtype=int)
+    idr_j   = np.asarray(idr,   dtype=int)
+
+    elit_j    = eps_fact * gam_j
+    ebig_j    = elit_j + 1.0e3
+    len_lit_j = elit_j / (rad_km * 1.0e3)
+    len_big_j = ebig_j / (rad_km * 1.0e3)
+
+    lona_rad_j = np.radians(lona_j);  lata_rad_j = np.radians(lata_j)
+    lonb_rad_j = np.radians(lonb_j);  latb_rad_j = np.radians(latb_j)
+
+    # per-jobs ndomain lookups
+    nd_idl = np.array([ndomain[idl_j[j] - 1] for j in range(n_segs)], dtype=int)
+    nd_idr = np.array([ndomain[idr_j[j] - 1] for j in range(n_segs)], dtype=int)
+
+    # per-jobs secondary geometry coefficients (depend on iwall[jobs])
+    asth_t  = (ah1 - alith)     * 1.0e-3
+    asth_t2 = (ah1 - 2 * alith) * 1.0e-3
+    is_wall = (iwall_j == 1)
+
+    co1_j   = np.where(is_wall, coefftr1, coeff1)
+    co2_j   = np.where(is_wall, coefftr2, coeff2)
+    scfb_j  = np.where(is_wall,
+        (2.0 * (8 * rad_km + asth_t))  / (8.0 * (2 * rad_km - asth_t)),
+        1.0 + asth_t  / (8 * rad_km))
+    scfb2_j = np.where(is_wall,
+        (2.0 * (8 * rad_km + asth_t2)) / (8.0 * (2 * rad_km - asth_t2)),
+        1.0 + asth_t2 / (8 * rad_km))
+    scxb_j  = np.where(is_wall,
+        (2 * rad_km + 2 * asth_t)  / (2 * rad_km - asth_t),
+        1.0 + asth_t  / rad_km)
+    scxb2_j = np.where(is_wall,
+        (2 * rad_km + 2 * asth_t2) / (2 * rad_km - asth_t2),
+        1.0 + asth_t2 / rad_km)
+
+    jobs_idx = np.arange(n_segs)
+    pkernel  = np.zeros((n_segs, n_segs))
+
+    for iset in range(n_segs):
+        lonaa = float(lona[iset]);  lataa = float(lata[iset])
+        lonbb = float(lonb[iset]);  latbb = float(latb[iset])
+        gm_s  = float(gam[iset])
+        alp_s = float(alpha[iset])
+
+        # ── Compute deriv1, deriv2 for all jobs simultaneously ────────────────
+        if iwall[iset] == 1 and iset >= num_segs:          # wall source
+            obs_azim_r = alpha_j + _PI / 2.0
+            la_r, lo_r = _project_vec(lona_rad_j, lata_rad_j, obs_azim_r, len_lit_j)
+            lb_r, lo_rb = _project_vec(lonb_rad_j, latb_rad_j, obs_azim_r, len_lit_j)
+            deriv1 = _calcvel_wall_vec(
+                np.degrees(la_r), np.degrees(lo_r),
+                np.degrees(lb_r), np.degrees(lo_rb),
+                alpha_j, lonaa, lataa, lonbb, latbb,
+                gm_s, alp_s, dsegtr, elit_j, ebig_j, 1, rad_km,
+            )
+            obs_azim_l = alpha_j - _PI / 2.0
+            la_l, lo_l = _project_vec(lona_rad_j, lata_rad_j, obs_azim_l, len_lit_j)
+            lb_l, lo_lb = _project_vec(lonb_rad_j, latb_rad_j, obs_azim_l, len_lit_j)
+            deriv2 = _calcvel_wall_vec(
+                np.degrees(la_l), np.degrees(lo_l),
+                np.degrees(lb_l), np.degrees(lo_lb),
+                alpha_j, lonaa, lataa, lonbb, latbb,
+                gm_s, alp_s, dsegtr, elit_j, ebig_j, 0, rad_km,
+            )
+
+        elif iwall[iset] == 1 or iwall[iset] == 0:         # edge source
+            lono_r = np.radians(lono_j);  lato_r = np.radians(lato_j)
+
+            obs_azim_r = alpha_j + _PI / 2.0
+            lon_rf, lat_rf = _project_vec(lono_r, lato_r, obs_azim_r, len_big_j)
+            Pr2 = _findpressure_edge_vec(np.degrees(lon_rf), np.degrees(lat_rf),
+                                         lonaa, lataa, lonbb, latbb, gm_s, rad_km)
+            lon_rn, lat_rn = _project_vec(lono_r, lato_r, obs_azim_r, len_lit_j)
+            Pr1 = _findpressure_edge_vec(np.degrees(lon_rn), np.degrees(lat_rn),
+                                         lonaa, lataa, lonbb, latbb, gm_s, rad_km)
+            deriv1 = (Pr2 - Pr1) / (ebig_j - elit_j)
+
+            obs_azim_l = alpha_j - _PI / 2.0
+            lon_lf, lat_lf = _project_vec(lono_r, lato_r, obs_azim_l, len_big_j)
+            Pl2 = _findpressure_edge_vec(np.degrees(lon_lf), np.degrees(lat_lf),
+                                         lonaa, lataa, lonbb, latbb, gm_s, rad_km)
+            lon_ln, lat_ln = _project_vec(lono_r, lato_r, obs_azim_l, len_lit_j)
+            Pl1 = _findpressure_edge_vec(np.degrees(lon_ln), np.degrees(lat_ln),
+                                         lonaa, lataa, lonbb, latbb, gm_s, rad_km)
+            deriv2 = (Pl1 - Pl2) / (ebig_j - elit_j)
+
+        else:                                               # strike-slip
+            deriv1 = np.zeros(n_segs)
+            deriv2 = np.zeros(n_segs)
+
+        # ── Domain weighting (vectorised over jobs) ────────────────────────────
+        def _weight(nd):
+            return np.where((nd == 100) | (nd == 500), co1_j * scfb_j  / 3.0,
+                   np.where( nd == 400,                co2_j * scfb2_j / 3.0,
+                   np.where( nd == 200,                co2_j * scxb2_j / 12.0,
+                   np.where( nd == 300,                co1_j * scxb_j  / 12.0,
+                             np.zeros(n_segs)))))
+
+        d1 = deriv1 * _weight(nd_idr)
+        d2 = deriv2 * _weight(nd_idl)
+
+        # ── Fill matrix column ─────────────────────────────────────────────────
+        col = np.where(iwall_j == 2, 0.0,
+              np.where(iwall_j == 0, d1 - d2,
+              np.where((iwall_j == 1) & (jobs_idx < num_segs), d1,
+                       d2)))
+        pkernel[:, iset] = col
+
+    return pkernel
 
 
 def _run_outputgrids(amu, press_depth, grid_spacing, pcoeff, geom):
@@ -711,6 +1035,8 @@ def solve_only(payload: dict) -> dict:
 
     if _cache is not None and _cache['key'] == cache_key:
         return {'cached': True, 'timing_s': time.perf_counter() - t0}
+
+    _poly_cache.clear()  # geometry changed — invalidate polygon cache
 
     # ── Generate Simple model input files if needed ──────────────────────────
     if model == _SIMPLE_MODEL:
@@ -801,7 +1127,7 @@ def solve_only(payload: dict) -> dict:
         _SHIFT_EDGES, polarity, _EPSDP_FACT,
     )
 
-    pkernel = buildmatrix(
+    pkernel = _fast_buildmatrix(
         lona, lata, lonb, latb,
         gam, alpha, lono, lato,
         iwall, idl, idr, n_segs, num_segs,
@@ -866,8 +1192,17 @@ def grid_only(payload: dict) -> dict:
 
     pcoeff = _cache['pcoeff_base'] * (amu / _cache['amu_base'])
 
+    # Restore polygon cache from solve state so partition_polygon_points is
+    # only called once per spacing, even across subprocess spawns.
+    global _poly_cache
+    _poly_cache = dict(_cache.get('poly', {}))
+
     P_out, vel_ew, vel_ns, DP, lons_grd, lats_grd = _run_outputgrids(
         amu, press_depth, grid_spacing, pcoeff, _cache['geom'])
+
+    # Persist any newly computed polygon entries back into the cache so
+    # the main process can pass them to future subprocesses.
+    _cache['poly'] = dict(_poly_cache)
 
     return _serialise_outputs(
         P_out, vel_ew, vel_ns, DP, _cache['geom']['iwall'],

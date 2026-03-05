@@ -37,7 +37,7 @@ def _grid_worker(fc_dir, payload, cache, q):
     compute._cache = cache
     try:
         result = compute.grid_only(payload)
-        q.put({'ok': True, 'result': result})
+        q.put({'ok': True, 'result': result, 'cache': compute._cache})
     except Exception as exc:
         import traceback
         q.put({'ok': False, 'error': str(exc), 'tb': traceback.format_exc()})
@@ -106,6 +106,9 @@ def compute_grid():
         item = q.get_nowait()
         if not item['ok']:
             return jsonify({'error': item['error'], 'traceback': item.get('tb', '')}), 500
+        # Persist polygon cache and any other state updated in the subprocess.
+        if 'cache' in item and _compute_mod._cache is not None:
+            _compute_mod._cache['poly'] = item['cache'].get('poly', {})
         return jsonify(item['result'])
     except Exception as exc:
         import traceback
