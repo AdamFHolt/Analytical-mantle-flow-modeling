@@ -12,6 +12,35 @@ function normLon(lon) {
   return lon > 180 ? lon - 360 : lon;
 }
 
+// ── Euler-pole velocity (replicates Python euler_pole.py) ──────────────────
+
+const _EP_R = 6371.0;  // Earth radius km (= mm/yr when rate in deg/Myr)
+
+function _sph2cart(lat, lon, r) {
+  const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  return [r * Math.cos(la) * Math.cos(lo),
+          r * Math.cos(la) * Math.sin(lo),
+          r * Math.sin(la)];
+}
+function _cross3(a, b) {
+  return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+}
+function _localEN(lat, lon, vx, vy, vz) {
+  const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  const east  = -vx * Math.sin(lo) + vy * Math.cos(lo);
+  const north = -vx * Math.sin(la) * Math.cos(lo)
+                -vy * Math.sin(la) * Math.sin(lo)
+                +vz * Math.cos(la);
+  return [east, north];
+}
+/** Returns [vew, vns] in mm/yr at (ptLat, ptLon) for given Euler pole. */
+function eulerVelocity(poleLat, poleLon, rateDegMyr, ptLat, ptLon) {
+  const omega = _sph2cart(poleLat, poleLon, -rateDegMyr * Math.PI / 180);
+  const r     = _sph2cart(ptLat,   ptLon,   _EP_R);
+  const v     = _cross3(omega, r);
+  return _localEN(ptLat, ptLon, v[0], v[1], v[2]);
+}
+
 /**
  * Build a GeoJSON LineString from two lon/lat pairs (0-360 convention).
  */
@@ -53,16 +82,35 @@ function svgSize() {
 
 const svg = d3.select('#map-svg');
 
-// Defs: arrowhead marker for velocity arrows
-svg.append('defs').append('marker')
+// Defs: arrowhead markers
+const defs0 = svg.append('defs');
+
+// Asthenospheric flow arrows (yellow)
+defs0.append('marker')
   .attr('id', 'arrowhead')
   .attr('viewBox', '0 -4 8 8')
   .attr('refX', 7).attr('refY', 0)
   .attr('markerWidth', 4).attr('markerHeight', 4)
   .attr('orient', 'auto')
-  .append('path')
-    .attr('d', 'M0,-4L8,0L0,4')
-    .attr('fill', '#ffee80');
+  .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#ffee80');
+
+// Plate velocity arrows (arrowhead inherits parent line stroke via context-stroke)
+defs0.append('marker')
+  .attr('id', 'plate-arrowhead')
+  .attr('viewBox', '0 -4 8 8')
+  .attr('refX', 7).attr('refY', 0)
+  .attr('markerWidth', 3).attr('markerHeight', 3)
+  .attr('orient', 'auto')
+  .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'context-stroke');
+
+// Trench velocity arrows (orange)
+defs0.append('marker')
+  .attr('id', 'trench-arrowhead')
+  .attr('viewBox', '0 -4 8 8')
+  .attr('refX', 7).attr('refY', 0)
+  .attr('markerWidth', 3).attr('markerHeight', 3)
+  .attr('orient', 'auto')
+  .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#00e8ff');
 
 let proj, path;
 
@@ -96,7 +144,10 @@ const gLand      = svg.append('g').attr('id', 'g-land');
 const gPressure  = svg.append('g').attr('id', 'g-pressure')
                       .attr('clip-path', 'url(#sphere-clip)');
 const gBounds    = svg.append('g').attr('id', 'g-bounds');
+const gPlateVel  = svg.append('g').attr('id', 'g-plate-vel');
+const gTrenchVel = svg.append('g').attr('id', 'g-trench-vel');
 const gVelocity  = svg.append('g').attr('id', 'g-velocity');
+const gEulerPole = svg.append('g').attr('id', 'g-euler-pole');
 
 // Sphere outline
 gSphere.append('path')
@@ -137,10 +188,22 @@ function redrawStatic() {
   gGraticule.select('path').attr('d', path);
   gLand.selectAll('path').attr('d', path);
   if (lastResult) renderResult(lastResult);
-  else {
-    // Re-project boundaries even without a full result.
-    gBounds.selectAll('.boundary').attr('d', path);
-  }
+  else gBounds.selectAll('.boundary').attr('d', path);
+  // Re-project geometry velocity arrows on resize.
+  _reprojectArrows(gPlateVel,  '.plate-vel-arrow');
+  _reprojectArrows(gTrenchVel, '.trench-vel-arrow');
+  if (_lastEulerPole) updateEulerPoleMarker(_lastEulerPole.lat, _lastEulerPole.lon);
+}
+
+/** Re-project stored arrow data after a projection change (resize). */
+function _reprojectArrows(layer, cls) {
+  layer.selectAll(cls).each(function(d) {
+    const xy0 = proj([normLon(d.lon), d.lat]);
+    if (!xy0) return;
+    const [x0, y0] = xy0;
+    d3.select(this).attr('x1', x0).attr('y1', y0)
+      .attr('x2', x0 + d._dx).attr('y2', y0 + d._dy);
+  });
 }
 
 // ── Geometry (boundaries shown before computation) ─────────────────────────
@@ -149,17 +212,63 @@ async function loadGeometry(model) {
   try {
     const resp = await fetch(`/geometry?model=${encodeURIComponent(model)}`);
     const data = await resp.json();
-    if (data.boundaries) renderBoundaries(data.boundaries);
-  } catch (_) { /* ignore — map still usable */ }
+
+    _isEarth      = data.is_earth      || false;
+    _spDomainIdx  = data.sp_domain_idx || null;
+    _plateVelGrid = data.plate_velocities  || [];
+    _trenchVelGrid = (data.trench_velocities || []).map(t => ({ lon: t.lon, lat: t.lat }));
+
+    // Show / hide velocity controls
+    document.getElementById('vel-idealized').style.display  = _isEarth ? 'none'  : 'block';
+    document.getElementById('vel-earth-note').style.display = _isEarth ? 'block' : 'none';
+
+    if (!_isEarth) {
+      if (data.sp_euler_pole) {
+        document.getElementById('inp-euler-lat') .value = data.sp_euler_pole.lat .toFixed(1);
+        document.getElementById('inp-euler-lon') .value = data.sp_euler_pole.lon .toFixed(1);
+        document.getElementById('inp-euler-rate').value = data.sp_euler_pole.rate.toFixed(2);
+        _lastEulerPole = { lat: data.sp_euler_pole.lat, lon: data.sp_euler_pole.lon };
+        updateEulerPoleMarker(data.sp_euler_pole.lat, data.sp_euler_pole.lon);
+      }
+      if (data.trench_vel_default) {
+        document.getElementById('inp-trench-vew').value = data.trench_vel_default.vew.toFixed(1);
+        document.getElementById('inp-trench-vns').value = data.trench_vel_default.vns.toFixed(1);
+      }
+    } else {
+      _lastEulerPole = null;
+      updateEulerPoleMarker(null, null);
+    }
+
+    gPlateVel.style('display', null);
+    gTrenchVel.style('display', null);
+    if (data.boundaries)       renderBoundaries(data.boundaries);
+    if (data.plate_velocities) renderPlateVelocities(data.plate_velocities);
+    if (data.trench_velocities) renderTrenchVelocities(data.trench_velocities);
+  } catch (_) { /* ignore */ }
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────
 
-const btnRun = document.getElementById('btn-run');
+const btnRun  = document.getElementById('btn-run');
+const btnStop = document.getElementById('btn-stop');
 const status  = document.getElementById('status');
 const overlay = document.getElementById('loading-overlay');
 const progBar = document.getElementById('progress-bar');
 const progSub = document.getElementById('loading-sub');
+
+btnStop.addEventListener('click', async () => {
+  btnStop.disabled = true;
+  btnStop.textContent = 'Stopping…';
+  try {
+    await fetch('/compute/cancel', { method: 'POST' });
+  } catch (_) { /* ignore */ }
+});
+
+// Live slider labels
+const inpDepth = document.getElementById('inp-depth');
+inpDepth.addEventListener('input', () => {
+  document.getElementById('depth-val').textContent = inpDepth.value;
+});
 
 function setStatus(msg, cls) {
   status.innerHTML = msg;
@@ -192,14 +301,74 @@ function finishProgress() {
   progBar.style.width = '100%';
 }
 
-// Load geometry immediately on page load, and whenever the model changes.
+// Draw the plate-velocity plasma colour bar once on load.
+(function() {
+  const cvs = document.getElementById('plate-vel-cbar');
+  if (!cvs) return;
+  const ctx = cvs.getContext('2d');
+  for (let px = 0; px < 60; px++) {
+    ctx.fillStyle = d3.interpolatePlasma(0.15 + 0.85 * px / 59);
+    ctx.fillRect(px, 0, 1, 8);
+  }
+})();
+
+// ── Live velocity state ─────────────────────────────────────────────────────
+
+let _plateVelGrid  = [];   // [{lon, lat, domain, vew, vns}] from last geometry load
+let _trenchVelGrid = [];   // [{lon, lat}] positions only
+let _spDomainIdx   = null; // 1-indexed domain of SP
+let _isEarth       = false;
+let _lastEulerPole = null; // {lat, lon} for resize redraw
+let _plateVmax     = 0;    // max plate speed (mm/yr) — used as shared scale for trench arrows
+
+// ── Live velocity arrow updates ─────────────────────────────────────────────
+
+function recomputePlateVelArrows() {
+  if (_isEarth || !_plateVelGrid.length || _spDomainIdx === null) return;
+  const poleLat  = parseFloat(document.getElementById('inp-euler-lat') .value);
+  const poleLon  = parseFloat(document.getElementById('inp-euler-lon') .value);
+  const poleRate = parseFloat(document.getElementById('inp-euler-rate').value);
+  if (!isFinite(poleLat) || !isFinite(poleLon) || !isFinite(poleRate)) return;
+  _lastEulerPole = { lat: poleLat, lon: poleLon };
+  updateEulerPoleMarker(poleLat, poleLon);
+  const updated = _plateVelGrid.map(pt => {
+    if (pt.domain === _spDomainIdx) {
+      const [vew, vns] = eulerVelocity(poleLat, poleLon, poleRate, pt.lat, pt.lon);
+      return { ...pt, vew, vns };
+    }
+    return pt;
+  });
+  renderPlateVelocities(updated);
+}
+
+function recomputeTrenchVelArrows() {
+  if (_isEarth || !_trenchVelGrid.length) return;
+  const vew = parseFloat(document.getElementById('inp-trench-vew').value);
+  const vns = parseFloat(document.getElementById('inp-trench-vns').value);
+  if (!isFinite(vew) || !isFinite(vns)) return;
+  renderTrenchVelocities(_trenchVelGrid.map(pt => ({ ...pt, vew, vns })));
+}
+
+['inp-euler-lat', 'inp-euler-lon', 'inp-euler-rate'].forEach(id => {
+  document.getElementById(id).addEventListener('input', recomputePlateVelArrows);
+});
+['inp-trench-vew', 'inp-trench-vns'].forEach(id => {
+  document.getElementById(id).addEventListener('input', recomputeTrenchVelArrows);
+});
+
+// ── Load geometry immediately on page load, and whenever the model changes. ─
+
 const selModel = document.getElementById('sel-model');
 loadGeometry(selModel.value);
 selModel.addEventListener('change', () => {
-  // Clear any existing pressure overlay when switching models.
   gPressure.selectAll('image').remove();
   gVelocity.selectAll('.vel-arrow').remove();
+  gPlateVel.selectAll('.plate-vel-arrow').remove();
+  gTrenchVel.selectAll('.trench-vel-arrow').remove();
+  gEulerPole.selectAll('.euler-pole-marker').remove();
+  _plateVelGrid = []; _trenchVelGrid = []; _spDomainIdx = null; _lastEulerPole = null;
   document.getElementById('colorbar').style.display = 'none';
+  document.getElementById('plate-vel-key').style.display = 'none';
   lastResult = null;
   loadGeometry(selModel.value);
 });
@@ -208,68 +377,200 @@ selModel.addEventListener('change', () => {
 
 let lastResult = null;
 
-// Rough estimate for each model (seconds), used to size the progress animation.
+// Per-model timing estimates (seconds) split into solve vs grid phases.
 const MODEL_EST = {
-  'LargeSP_RetreatingTrench':                    15,
-  'SmallSP_RetreatingTrench':                    15,
-  'LargeSP_RetreatingTrenchSlabGap':             15,
-  'Slab2.0Final_NoJapTail_nnr_FS':               60,
-  'Slab2.0Final_NoJapTailNoPhil_nnr_FS':         60,
+  'LargeSP_RetreatingTrench':             { solve:  6, grid:  9 },
+  'SmallSP_RetreatingTrench':             { solve:  4, grid:  6 },
+  'LargeSP_RetreatingTrenchSlabGap':      { solve:  6, grid:  9 },
+  'Slab2.0Final_NoJapTail_nnr_FS':        { solve: 30, grid: 30 },
 };
+
+const loadingLabel = document.getElementById('loading-label');
 
 btnRun.addEventListener('click', async () => {
   const model = selModel.value;
-  const payload = {
+  const fullPayload = {
     model,
-    viscosity: parseFloat(document.getElementById('inp-visc').value),
-    basal_bc:  document.getElementById('sel-bc').value,
+    viscosity:        parseFloat(document.getElementById('inp-visc').value),
+    basal_bc:         document.getElementById('sel-bc').value,
+    press_depth:      parseFloat(inpDepth.value) * 1000,
+    grid_spacing_deg: parseFloat(document.getElementById('sel-res').value),
+  };
+  if (!_isEarth) {
+    fullPayload.euler_lat  = parseFloat(document.getElementById('inp-euler-lat') .value);
+    fullPayload.euler_lon  = parseFloat(document.getElementById('inp-euler-lon') .value);
+    fullPayload.euler_rate = parseFloat(document.getElementById('inp-euler-rate').value);
+    fullPayload.trench_vew = parseFloat(document.getElementById('inp-trench-vew').value);
+    fullPayload.trench_vns = parseFloat(document.getElementById('inp-trench-vns').value);
+  }
+  // Grid-only payload: the fields that grid_only() reads.
+  const gridPayload = {
+    viscosity:        fullPayload.viscosity,
+    press_depth:      fullPayload.press_depth,
+    grid_spacing_deg: fullPayload.grid_spacing_deg,
   };
 
-  const estMs = (MODEL_EST[model] || 30) * 1000;
+  const est = MODEL_EST[model] || { solve: 10, grid: 10 };
 
   btnRun.disabled = true;
   btnRun.textContent = '⏳  Computing…';
+  btnStop.disabled = false;
+  btnStop.textContent = '■ Stop';
   overlay.style.display = 'flex';
-  startProgress(estMs);
   setStatus('');
 
+  const post = (url, body) => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
   try {
-    const resp = await fetch('/compute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // ── Phase 1: BEM matrix solve ──────────────────────────────────────────
+    loadingLabel.textContent = 'Running BEM solver…';
+    startProgress(est.solve * 1000);
 
-    const data = await resp.json();
+    const solveResp = await post('/compute/solve', fullPayload);
+    const solveData = await solveResp.json();
+    if (solveData.cancelled) { gPlateVel.style('display', null); gTrenchVel.style('display', null); setStatus('Cancelled.'); return; }
+    if (!solveResp.ok || solveData.error)
+      throw new Error(solveData.error || `HTTP ${solveResp.status}`);
 
-    if (!resp.ok || data.error) {
-      throw new Error(data.error || `HTTP ${resp.status}`);
-    }
+    // ── Phase 2: grid output ───────────────────────────────────────────────
+    loadingLabel.textContent = 'Outputting grid…';
+    startProgress(est.grid * 1000);
+
+    const gridResp = await post('/compute/grid', gridPayload);
+    const data = await gridResp.json();
+    if (data.cancelled) { gPlateVel.style('display', null); gTrenchVel.style('display', null); setStatus('Cancelled.'); return; }
+    if (!gridResp.ok || data.error)
+      throw new Error(data.error || `HTTP ${gridResp.status}`);
 
     finishProgress();
-    // Brief pause so the bar visibly hits 100 %
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 200));
 
     lastResult = data;
     renderResult(data);
-    setStatus(`Done in ${data.timing_s.toFixed(1)} s`, 'ok');
+    const cacheNote = solveData.cached ? ' (cached)' : '';
+    setStatus(`Done in ${(solveData.timing_s + data.timing_s).toFixed(1)} s${cacheNote}`, 'ok');
+    document.getElementById('btn-png').disabled = false;
+    document.getElementById('btn-csv').disabled = false;
   } catch (err) {
     setStatus(`Error: ${err.message}`, 'error');
   } finally {
     overlay.style.display = 'none';
     progBar.style.width = '0%';
+    loadingLabel.textContent = 'Running BEM solver…';
     btnRun.disabled = false;
     btnRun.textContent = '▶  Run';
+    btnStop.disabled = false;
+    btnStop.textContent = '■ Stop';
   }
 });
+
+// ── Geometry velocity renderers ─────────────────────────────────────────────
+
+/**
+ * Plate velocity arrows at boundary segment midpoints, coloured by speed.
+ * Uses d3.interpolatePlasma: dark=slow, bright=fast.
+ * @param {Array} vels  [{lon, lat, vew, vns, iwall}, …]  (mm/yr)
+ */
+function renderPlateVelocities(vels) {
+  if (!vels || !vels.length) return;
+  gPlateVel.selectAll('.plate-vel-arrow').remove();
+
+  const speeds = vels.map(v => Math.hypot(v.vew, v.vns)).filter(isFinite);
+  if (!speeds.length) return;
+  const vmax = Math.max(...speeds);
+  if (vmax === 0) return;
+
+  _plateVmax = vmax;  // store for trench arrow scale reference
+
+  const { w, h } = svgSize();
+  // Scale: max arrow ≈ 3 % of the shorter map dimension
+  const arrowScale = Math.min(w, h) * 0.03 / vmax;
+  const colorScale = s => d3.interpolatePlasma(0.15 + 0.85 * (s / vmax));
+
+  const arrows = vels.map(v => {
+    const spd = Math.hypot(v.vew, v.vns);
+    if (!isFinite(spd) || spd === 0) return null;
+    const xy = proj([normLon(v.lon), v.lat]);
+    if (!xy) return null;
+    const dx =  v.vew * arrowScale;
+    const dy = -v.vns * arrowScale;
+    return { lon: v.lon, lat: v.lat, _dx: dx, _dy: dy, spd };
+  }).filter(Boolean);
+
+  // Update plate-vel legend swatch with vmax
+  const pvKey = document.getElementById('plate-vel-key');
+  if (pvKey) {
+    pvKey.style.display = 'flex';
+    document.getElementById('plate-vel-vmax').textContent =
+      `max ${vmax.toFixed(0)} mm/yr`;
+  }
+
+  gPlateVel.selectAll('.plate-vel-arrow')
+    .data(arrows)
+    .join('line')
+      .attr('class', 'plate-vel-arrow')
+      .attr('x1', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[0] : 0; })
+      .attr('y1', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[1] : 0; })
+      .attr('x2', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[0] + d._dx : 0; })
+      .attr('y2', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[1] + d._dy : 0; })
+      .attr('stroke', d => colorScale(d.spd))
+      .attr('marker-end', 'url(#plate-arrowhead)');
+}
+
+/**
+ * Trench / slab prescribed velocity arrows (orange).
+ * @param {Array} vels  [{lon, lat, vew, vns}, …]  (mm/yr)
+ */
+function renderTrenchVelocities(vels) {
+  if (!vels || !vels.length) return;
+  gTrenchVel.selectAll('.trench-vel-arrow').remove();
+
+  const speeds = vels.map(v => Math.hypot(v.vew, v.vns)).filter(isFinite);
+  if (!speeds.length) return;
+  // Use the plate velocity scale as reference so trench arrow length is meaningful.
+  // Fall back to the local max only if no plate arrows have been rendered yet.
+  const refVmax = _plateVmax > 0 ? _plateVmax : Math.max(...speeds);
+  if (refVmax === 0) return;
+
+  const { w, h } = svgSize();
+  const arrowScale = Math.min(w, h) * 0.03 / refVmax;
+
+  const arrows = vels.map(v => {
+    const spd = Math.hypot(v.vew, v.vns);
+    if (!isFinite(spd) || spd === 0) return null;
+    const xy = proj([normLon(v.lon), v.lat]);
+    if (!xy) return null;
+    const dx =  v.vew * arrowScale;
+    const dy = -v.vns * arrowScale;
+    return { lon: v.lon, lat: v.lat, _dx: dx, _dy: dy };
+  }).filter(Boolean);
+
+  gTrenchVel.selectAll('.trench-vel-arrow')
+    .data(arrows)
+    .join('line')
+      .attr('class', 'trench-vel-arrow')
+      .attr('x1', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[0] : 0; })
+      .attr('y1', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[1] : 0; })
+      .attr('x2', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[0] + d._dx : 0; })
+      .attr('y2', d => { const xy = proj([normLon(d.lon), d.lat]); return xy ? xy[1] + d._dy : 0; })
+      .attr('marker-end', 'url(#trench-arrowhead)');
+}
 
 // ── Render ─────────────────────────────────────────────────────────────────
 
 function renderResult(data) {
+  // Hide geometry velocity arrows — too cluttered with the pressure field.
+  gPlateVel.style('display', 'none');
+  gTrenchVel.style('display', 'none');
   renderPressure(data);
   renderBoundaries(data.boundaries);
   renderVelocity(data.velocity);
   renderColorbar(data);
+  updateVectorKey(data.vel_max_cmyr || 0);
 }
 
 /**
@@ -344,6 +645,22 @@ function renderPressure(data) {
   let img = gPressure.select('image');
   if (img.empty()) img = gPressure.append('image');
   img.attr('href', dataUrl).attr('x', 0).attr('y', 0).attr('width', w).attr('height', h);
+}
+
+/**
+ * Draw or update the Euler pole marker (×) on the map.
+ * Pass null to remove the marker.
+ */
+function updateEulerPoleMarker(lat, lon) {
+  gEulerPole.selectAll('.euler-pole-marker').remove();
+  if (lat == null || !isFinite(lat) || !isFinite(lon)) return;
+  const xy = proj([normLon(lon), lat]);
+  if (!xy) return;
+  const s = 7;
+  gEulerPole.append('line').attr('class', 'euler-pole-marker')
+    .attr('x1', xy[0]-s).attr('y1', xy[1]).attr('x2', xy[0]+s).attr('y2', xy[1]);
+  gEulerPole.append('line').attr('class', 'euler-pole-marker')
+    .attr('x1', xy[0]).attr('y1', xy[1]-s).attr('x2', xy[0]).attr('y2', xy[1]+s);
 }
 
 /**
@@ -425,6 +742,69 @@ function renderColorbar(data) {
     ctx.fillRect(px, 0, 1, 14);
   }
 
-  document.getElementById('cb-min').textContent = `${(-vmax).toFixed(1)} MPa`;
-  document.getElementById('cb-max').textContent = `${vmax.toFixed(1)} MPa`;
+  document.getElementById('cb-min').textContent = `${(-vmax).toFixed(1)}`;
+  document.getElementById('cb-max').textContent = `${vmax.toFixed(1)}`;
 }
+
+/**
+ * Update the vector key legend item with the max velocity from this run.
+ * @param {number} velMaxCmyr  maximum asthenospheric flow speed, cm/yr
+ */
+function updateVectorKey(velMaxCmyr) {
+  const item = document.getElementById('vel-key-item');
+  if (!isFinite(velMaxCmyr) || velMaxCmyr === 0) { item.style.display = 'none'; return; }
+  item.style.display = 'flex';
+  // Arrow in the SVG represents the max speed; label shows that value.
+  document.getElementById('vel-key-label').textContent =
+    `max ${velMaxCmyr.toFixed(1)} cm/yr`;
+}
+
+// ── Export ──────────────────────────────────────────────────────────────────
+
+/** Download the current map SVG rendered to PNG. */
+function exportPNG() {
+  if (!lastResult) return;
+  const svgEl = document.getElementById('map-svg');
+  const { w, h } = svgSize();
+  const svgData = new XMLSerializer().serializeToString(svgEl);
+  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0d1b2a';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    const a = document.createElement('a');
+    a.download = 'mantle-flow.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  };
+  img.src = url;
+}
+
+/** Download pressure grid as CSV (lon, lat, pressure_MPa). */
+function exportCSV() {
+  if (!lastResult) return;
+  const { lons, lats, pressure } = lastResult;
+  const rows = ['lon,lat,pressure_MPa'];
+  for (let i = 0; i < lats.length; i++) {
+    for (let j = 0; j < lons.length; j++) {
+      const p = pressure[i][j];
+      if (isFinite(p)) rows.push(`${lons[j].toFixed(2)},${lats[i].toFixed(2)},${p.toFixed(4)}`);
+    }
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.download = 'mantle-flow.csv';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+document.getElementById('btn-png').addEventListener('click', exportPNG);
+document.getElementById('btn-csv').addEventListener('click', exportCSV);

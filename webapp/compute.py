@@ -4,6 +4,18 @@ and returns JSON-serialisable results.
 
 This module is imported by app.py, which already inserts the flow_computations/
 directory into sys.path before importing this module.
+
+Caching
+-------
+The expensive part of each run is buildmatrix + inv(pkernel).  Because the
+solution is a linear Stokes system, pcoeff ∝ amu (viscosity).  So if only
+viscosity, plot depth, or grid resolution changes we can reuse the cached
+pcoeff (scaled by amu_new/amu_base) and call only outputgrids — skipping the
+~13 s matrix inversion entirely.
+
+Cache key = (model, basal_bc, flux_slab, flux_width, flux_alpha,
+             no_flux_for_slabtails,
+             euler_lat, euler_lon, euler_rate, trench_vew, trench_vns)
 """
 import sys
 import time
@@ -19,7 +31,9 @@ if str(_FC_DIR) not in sys.path:
 from functions import (
     readdomains, readgrid, readbounds, organizebounds,
     pressurepoints, buildmatrix, buildvector, outputgrids, outputDP,
+    partition_polygon_points,
 )
+from euler_pole import EulerPole
 
 # ── Fixed physical constants (match global_pressure_withPressurePlot.py) ──────
 _RAD_KM      = 6378.0
@@ -32,8 +46,14 @@ _EPS_FACT    = 0.01
 _EPSDP_FACT  = 2 * _EPS_FACT
 _ISEG_MIN    = 0
 _FLUX_VEL_CONST = 50.0       # mm/yr, only used when flux_slab == 1
-_PRESS_DEPTH = 330.0e3       # depth at which pressure field is evaluated, m
+_PRESS_DEPTH = 330.0e3       # depth at which pressure field is evaluated, m (default)
 _DIP_DEPTH   = 330.0e3       # depth for DP calculation, m
+
+# ── Module-level cache ────────────────────────────────────────────────────────
+_cache = None   # set after first successful solve
+
+# ── Earth / real-plate models (velocities come entirely from input files) ─────
+_EARTH_MODELS = {'Slab2.0Final_NoJapTail_nnr_FS'}
 
 
 def _to_float(v):
@@ -41,10 +61,19 @@ def _to_float(v):
     return float(v)
 
 
+def _seg_midpoint(lona_i, lata_i, lonb_i, latb_i):
+    """Midpoint lon (0-360) / lat, handling the dateline correctly."""
+    dlon = lonb_i - lona_i
+    if dlon > 180:  dlon -= 360
+    if dlon < -180: dlon += 360
+    return (lona_i + dlon / 2) % 360, (lata_i + latb_i) / 2
+
+
 def get_geometry(model: str) -> dict:
     """
-    Read only the boundary and domain files for a model — no computation.
-    Returns boundaries suitable for immediate map display.
+    Read boundary and domain files for a model.
+    Returns boundaries, plate velocity vectors, and trench velocity vectors
+    at segment midpoints — all without running the matrix solve.
     """
     inp_dir   = _FC_DIR / 'inputs'
     f_bounds  = str(inp_dir / f'Subbon_{model}.inp')
@@ -60,8 +89,11 @@ def get_geometry(model: str) -> dict:
      iwall, lona, lata, lonb, latb, bound_ind,
      idl, idr, vt_ew, vt_ns, polarity, large_wall_inds) = readbounds(f_bounds)
 
-    boundaries = [
-        {
+    boundaries = []
+    trench_velocities = []
+
+    for i in range(num_bounds):
+        boundaries.append({
             'type':         int(iwall[i]),
             'lona':         _to_float(lona[i]),
             'lata':         _to_float(lata[i]),
@@ -69,25 +101,182 @@ def get_geometry(model: str) -> dict:
             'latb':         _to_float(latb[i]),
             'left_domain':  int(idl[i]),
             'right_domain': int(idr[i]),
+        })
+
+        if iwall[i] == 1:
+            mid_lon, mid_lat = _seg_midpoint(lona[i], lata[i], lonb[i], latb[i])
+            trench_velocities.append({
+                'lon': _to_float(mid_lon),
+                'lat': _to_float(mid_lat),
+                'vew': _to_float(vt_ew[i]),  # mm/yr
+                'vns': _to_float(vt_ns[i]),  # mm/yr
+            })
+
+    # ── Plate velocities on an interior grid ────────────────────────────────
+    # Use partition_polygon_points to assign each coarse grid point to a domain,
+    # then compute the Euler-pole velocity there.
+    GRID_DEG = 15.0
+    lons_c = np.arange(0.0, 360.0, GRID_DEG)
+    lats_c = np.arange(-82.5, 83.0, GRID_DEG)
+
+    _, polygon_points = partition_polygon_points(
+        lons_c, lats_c,
+        list(range(1, num_bounds + 1)),   # bound_ind: 1-based sequential
+        lona, lata, lonb, latb,
+        domain_bounds, _RAD_KM,
+    )
+
+    plate_velocities = []
+    for ii in range(len(lats_c)):
+        for jj in range(len(lons_c)):
+            domain = int(polygon_points[ii, jj])
+            if domain == 0:
+                continue
+            dom = domain - 1
+            lat, lon = float(lats_c[ii]), float(lons_c[jj])
+            if ndomain[dom] == 500:
+                vew = float(rigid_vew[dom])
+                vns = float(rigid_vns[dom])
+            else:
+                pole = EulerPole(lat=pole_top_lat[dom],
+                                 lon=pole_top_lon[dom],
+                                 rate=pole_top_rate[dom])
+                vew, vns, _ = pole.velocity_components(lat, lon)
+                vew, vns = float(vew), float(vns)
+            plate_velocities.append({
+                'lon':    lon,
+                'lat':    lat,
+                'vew':    vew,    # mm/yr
+                'vns':    vns,    # mm/yr
+                'domain': domain, # 1-indexed
+            })
+
+    is_earth = model in _EARTH_MODELS
+    sp_euler_pole     = None
+    trench_vel_default = None
+    sp_domain_idx     = None
+
+    if not is_earth:
+        for i in range(num_bounds):
+            if iwall[i] == 1:
+                sp_domain_idx = int(idl[i])   # 1-indexed
+                sp_dom = sp_domain_idx - 1
+                sp_euler_pole = {
+                    'lat':  float(pole_top_lat[sp_dom]),
+                    'lon':  float(pole_top_lon[sp_dom]),
+                    'rate': float(pole_top_rate[sp_dom]),
+                }
+                break
+        slab_vews = [float(vt_ew[i]) for i in range(num_bounds) if iwall[i] == 1]
+        slab_vnss = [float(vt_ns[i]) for i in range(num_bounds) if iwall[i] == 1]
+        if slab_vews:
+            trench_vel_default = {
+                'vew': sum(slab_vews) / len(slab_vews),
+                'vns': sum(slab_vnss) / len(slab_vnss),
+            }
+
+    return {
+        'boundaries':        boundaries,
+        'plate_velocities':  plate_velocities,
+        'trench_velocities': trench_velocities,
+        'is_earth':          is_earth,
+        'sp_euler_pole':     sp_euler_pole,
+        'trench_vel_default': trench_vel_default,
+        'sp_domain_idx':     sp_domain_idx,
+    }
+
+
+def _serialise_outputs(P_out, vel_ew, vel_ns, DP, iwall,
+                       lons_grd, lats_grd, orig_bounds, t0):
+    """Pack outputgrids / outputDP results into a JSON-serialisable dict."""
+    lons_1d = lons_grd[0, :].tolist()
+    lats_1d = lats_grd[:, 0].tolist()
+
+    dp_list = [
+        {
+            'lon':    _to_float(DP[i, 0]),
+            'lat':    _to_float(DP[i, 1]),
+            'dp_MPa': _to_float(DP[i, 4]),
         }
-        for i in range(num_bounds)
+        for i in range(len(DP))
+        if iwall[i] == 1
     ]
-    return {'boundaries': boundaries}
+
+    step_lon = max(1, len(lons_1d) // 20)
+    step_lat = max(1, len(lats_1d) // 10)
+    vel_list = [
+        {
+            'lon': lons_1d[j],
+            'lat': lats_1d[i],
+            'vew': _to_float(vel_ew[i, j]),
+            'vns': _to_float(vel_ns[i, j]),
+        }
+        for i in range(0, len(lats_1d), step_lat)
+        for j in range(0, len(lons_1d), step_lon)
+    ]
+
+    vel_max_cmyr = float(np.nanmax(np.hypot(vel_ew, vel_ns))) if vel_ew.size else 0.0
+
+    return {
+        'lons':         lons_1d,
+        'lats':         lats_1d,
+        'pressure':     P_out.tolist(),
+        'dp':           dp_list,
+        'velocity':     vel_list,
+        'boundaries':   orig_bounds,
+        'vel_max_cmyr': vel_max_cmyr,
+        'timing_s':     time.perf_counter() - t0,
+    }
 
 
-def run_computation(payload: dict) -> dict:
+def _run_outputgrids(amu, press_depth, grid_spacing, pcoeff, geom):
+    """Call outputgrids + outputDP with the given pcoeff and geometry cache."""
+    coefftr1 = (_AH1 - _ALITH)    ** 2 / amu
+    coefftr2 = (_AH1 - 2 * _ALITH) ** 2 / amu
+
+    (P_out,
+     _Pwall, _Pedge,
+     _dPlon, _dPlat,
+     _polygon_pts,
+     _pvel_ew, _pvel_ns,
+     _trench_vels,
+     vel_ew, vel_ns,
+     _pdwall_ew, _pdwall_ns,
+     _pdedge_ew, _pdedge_ns,
+     lons_grd, lats_grd,
+     _polygons) = outputgrids(
+        grid_spacing,
+        geom['lona'], geom['lata'], geom['lonb'], geom['latb'],
+        geom['lono'], geom['lato'], geom['iwall'], geom['gam'], geom['alpha'],
+        amu, _AH1 - _ALITH,
+        geom['n_segs'], geom['num_segs'], pcoeff,
+        _RAD_KM, geom['domain_bounds'], geom['bound_ind'],
+        geom['pole_top_lon'], geom['pole_top_lat'], geom['pole_top_rate'],
+        geom['vt_ew'], geom['vt_ns'], _ALITH, press_depth,
+        coefftr1, coefftr2,
+        geom['pole_bott_lon'], geom['pole_bott_lat'], geom['pole_bott_rate'],
+        geom['rigid_vew'], geom['rigid_vns'], _AH1, geom['ndomain'],
+    )
+
+    DP = outputDP(
+        geom['lona'], geom['lata'], geom['lonb'], geom['latb'],
+        geom['lono'], geom['lato'], geom['iwall'], geom['gam'], geom['alpha'],
+        geom['n_segs'], geom['num_segs'], pcoeff, _RAD_KM,
+        geom['lon_subslab'], geom['lat_subslab'],
+        geom['lon_wedge'], geom['lat_wedge'],
+        geom['polarity'], geom['vtopl'], geom['vtopr'], geom['vt'], _DIP_DEPTH,
+    )
+
+    return P_out, vel_ew, vel_ns, DP, lons_grd, lats_grd
+
+
+def solve_only(payload: dict) -> dict:
     """
-    Run the BEM pressure-computation pipeline for a named plate model.
-
-    Parameters (from JSON payload)
-    --------------------------------
-    model               : str   plate model name (default: LargeSP_RetreatingTrench)
-    viscosity           : float asthenospheric viscosity, Pa·s  (default: 3e20)
-    flux_slab           : int   0=none, 1=constant-vel flux, 2=convergence-rate flux
-    flux_width          : float total slab-flux channel width, m  (default: 500 000)
-    flux_alpha          : float fraction of flux on SP side       (default: 0)
-    no_flux_for_slabtails: int  1 = suppress flux where slab tail present
+    Phase 1: read inputs, build matrix, invert.
+    Returns immediately from cache if the heavy params haven't changed.
+    Result contains only {cached, timing_s} — no grid data yet.
     """
+    global _cache
     t0 = time.perf_counter()
 
     model                 = payload.get('model',  'LargeSP_RetreatingTrench')
@@ -97,38 +286,68 @@ def run_computation(payload: dict) -> dict:
     flux_width            = float(payload.get('flux_width',        500_000.0))
     flux_alpha            = float(payload.get('flux_alpha',              0.0))
     no_flux_for_slabtails = int(  payload.get('no_flux_for_slabtails',   1))
+    euler_lat  = payload.get('euler_lat',  None)
+    euler_lon  = payload.get('euler_lon',  None)
+    euler_rate = payload.get('euler_rate', None)
+    trench_vew = payload.get('trench_vew', None)
+    trench_vns = payload.get('trench_vns', None)
 
-    # ── Derived coefficients ────────────────────────────────────────────────
+    cache_key = (
+        model, basal_bc, flux_slab, flux_width, flux_alpha,
+        no_flux_for_slabtails,
+        round(float(euler_lat),  4) if euler_lat  is not None else None,
+        round(float(euler_lon),  4) if euler_lon  is not None else None,
+        round(float(euler_rate), 4) if euler_rate is not None else None,
+        round(float(trench_vew), 4) if trench_vew is not None else None,
+        round(float(trench_vns), 4) if trench_vns is not None else None,
+    )
+
+    if _cache is not None and _cache['key'] == cache_key:
+        return {'cached': True, 'timing_s': time.perf_counter() - t0}
+
+    # ── Full matrix solve ────────────────────────────────────────────────────
     coeff1   = (_AH1 - _ALITH)    ** 3 / (amu * _AH1)
     coeff2   = (_AH1 - 2 * _ALITH) ** 3 / (amu * _AH1)
     coefftr1 = (_AH1 - _ALITH)    ** 2 / amu
     coefftr2 = (_AH1 - 2 * _ALITH) ** 2 / amu
 
-    # ── Input file paths (absolute, relative to flow_computations/) ─────────
     inp_dir   = _FC_DIR / 'inputs'
     f_bounds  = str(inp_dir / f'Subbon_{model}.inp')
     f_domains = str(inp_dir / f'Subfil_{model}.inp')
     f_grid    = str(inp_dir / 'Subgrd_Fast.inp')
 
-    # ── Read inputs ─────────────────────────────────────────────────────────
     (ndomain,
      pole_top_lon, pole_top_lat, pole_top_rate,
      pole_bott_lon, pole_bott_lat, pole_bott_rate,
      rigid_vew, rigid_vns,
      domain_bounds) = readdomains(f_domains)
 
-    # Remap domain type codes for basal boundary condition:
-    #   100 = free-slip base (default), 300 = no-slip base.
     if basal_bc == 'no_slip':
         ndomain = [300 if v == 100 else v for v in ndomain]
 
-    grid_spacing, _prof, dsegtr, dseged = readgrid(f_grid)
+    grid_spacing_default, _prof, dsegtr, dseged = readgrid(f_grid)
 
     (num_bounds,
      iwall, lona, lata, lonb, latb, bound_ind,
      idl, idr, vt_ew, vt_ns, polarity, large_wall_inds) = readbounds(f_bounds)
 
-    # Save original (unsegmented) boundaries for the frontend.
+    # Apply Euler pole override to SP domain (non-Earth models only)
+    if all(v is not None for v in [euler_lat, euler_lon, euler_rate]):
+        sp_dom = next((idl[i]-1 for i in range(num_bounds) if iwall[i] == 1), None)
+        if sp_dom is not None:
+            pole_top_lat[sp_dom]  = float(euler_lat)
+            pole_top_lon[sp_dom]  = float(euler_lon)
+            pole_top_rate[sp_dom] = float(euler_rate)
+            pole_bott_lat[sp_dom]  = float(euler_lat)
+            pole_bott_lon[sp_dom]  = float(euler_lon)
+            pole_bott_rate[sp_dom] = float(euler_rate)
+
+    if trench_vew is not None and trench_vns is not None:
+        for i in range(num_bounds):
+            if iwall[i] == 1:
+                vt_ew[i] = float(trench_vew)
+                vt_ns[i] = float(trench_vns)
+
     orig_bounds = [
         {
             'type':        int(iwall[i]),
@@ -142,7 +361,6 @@ def run_computation(payload: dict) -> dict:
         for i in range(num_bounds)
     ]
 
-    # ── Segment boundaries and double-up slab walls ─────────────────────────
     (n_segs, num_segs,
      iwall, idl, idr,
      lona, lata, lonb, latb,
@@ -157,7 +375,6 @@ def run_computation(payload: dict) -> dict:
         _RAD_KM, _ISEG_MIN,
     )
 
-    # ── Pressure-point setup ────────────────────────────────────────────────
     (lono, lato, gam, alpha,
      vtopl, vtopr, vbotl, vbotr, vt,
      lon_subslab, lat_subslab,
@@ -172,7 +389,6 @@ def run_computation(payload: dict) -> dict:
         _SHIFT_EDGES, polarity, _EPSDP_FACT,
     )
 
-    # ── Matrix build ────────────────────────────────────────────────────────
     pkernel = buildmatrix(
         lona, lata, lonb, latb,
         gam, alpha, lono, lato,
@@ -182,7 +398,6 @@ def run_computation(payload: dict) -> dict:
         _RAD_KM, _ALITH, _AH1, _EPS_FACT,
     )
 
-    # ── RHS vector ──────────────────────────────────────────────────────────
     vector = buildvector(
         iwall, alpha, ndomain, idl, idr,
         vtopl, vtopr, vbotl, vbotr, vt,
@@ -193,78 +408,65 @@ def run_computation(payload: dict) -> dict:
         _RAD_KM, _ALITH, _AH1,
     )
 
-    # ── Inversion ───────────────────────────────────────────────────────────
     pcoeff = inv(pkernel).dot(vector)
 
-    # ── Grid output ─────────────────────────────────────────────────────────
-    (P_out,
-     _Pwall, _Pedge,
-     _dPlon, _dPlat,
-     _polygon_pts,
-     _pvel_ew, _pvel_ns,
-     _trench_vels,
-     vel_ew, vel_ns,
-     _pdwall_ew, _pdwall_ns,
-     _pdedge_ew, _pdedge_ns,
-     lons_grd, lats_grd,
-     _polygons) = outputgrids(
-        grid_spacing,
-        lona, lata, lonb, latb,
-        lono, lato, iwall, gam, alpha,
-        amu, _AH1 - _ALITH,
-        n_segs, num_segs, pcoeff,
-        _RAD_KM, domain_bounds, bound_ind,
-        pole_top_lon, pole_top_lat, pole_top_rate,
-        vt_ew, vt_ns, _ALITH, _PRESS_DEPTH,
-        coefftr1, coefftr2,
-        pole_bott_lon, pole_bott_lat, pole_bott_rate,
-        rigid_vew, rigid_vns, _AH1, ndomain,
+    geom = dict(
+        lona=lona, lata=lata, lonb=lonb, latb=latb,
+        lono=lono, lato=lato, iwall=iwall, gam=gam, alpha=alpha,
+        n_segs=n_segs, num_segs=num_segs,
+        domain_bounds=domain_bounds, bound_ind=bound_ind,
+        pole_top_lon=pole_top_lon, pole_top_lat=pole_top_lat,
+        pole_top_rate=pole_top_rate,
+        vt_ew=vt_ew, vt_ns=vt_ns,
+        pole_bott_lon=pole_bott_lon, pole_bott_lat=pole_bott_lat,
+        pole_bott_rate=pole_bott_rate,
+        rigid_vew=rigid_vew, rigid_vns=rigid_vns,
+        ndomain=ndomain,
+        lon_subslab=lon_subslab, lat_subslab=lat_subslab,
+        lon_wedge=lon_wedge, lat_wedge=lat_wedge,
+        polarity=polarity, vtopl=vtopl, vtopr=vtopr, vt=vt,
+    )
+    _cache = dict(
+        key=cache_key,
+        amu_base=amu,
+        pcoeff_base=pcoeff.copy(),
+        geom=geom,
+        orig_bounds=orig_bounds,
+        grid_spacing_default=grid_spacing_default,
     )
 
-    # ── DP output ───────────────────────────────────────────────────────────
-    DP = outputDP(
-        lona, lata, lonb, latb,
-        lono, lato, iwall, gam, alpha,
-        n_segs, num_segs, pcoeff, _RAD_KM,
-        lon_subslab, lat_subslab,
-        lon_wedge, lat_wedge,
-        polarity, vtopl, vtopr, vt, _DIP_DEPTH,
-    )
+    return {'cached': False, 'timing_s': time.perf_counter() - t0}
 
-    # ── Serialise results ───────────────────────────────────────────────────
-    lons_1d = lons_grd[0, :].tolist()
-    lats_1d = lats_grd[:, 0].tolist()
 
-    dp_list = [
-        {
-            'lon':    _to_float(DP[i, 0]),
-            'lat':    _to_float(DP[i, 1]),
-            'dp_MPa': _to_float(DP[i, 4]),
-        }
-        for i in range(len(DP))
-        if iwall[i] == 1
-    ]
+def grid_only(payload: dict) -> dict:
+    """
+    Phase 2: run outputgrids on the cached solve state.
+    Must be called after solve_only has populated _cache.
+    """
+    if _cache is None:
+        raise RuntimeError('No cached solve — call /compute/solve first')
 
-    # Subsample velocity field to ~20×10 arrows for visualisation.
-    step_lon = max(1, len(lons_1d) // 20)
-    step_lat = max(1, len(lats_1d) // 10)
-    vel_list = [
-        {
-            'lon': lons_1d[j],
-            'lat': lats_1d[i],
-            'vew': _to_float(vel_ew[i, j]),
-            'vns': _to_float(vel_ns[i, j]),
-        }
-        for i in range(0, len(lats_1d), step_lat)
-        for j in range(0, len(lons_1d), step_lon)
-    ]
+    t0          = time.perf_counter()
+    amu         = float(payload.get('viscosity',    _cache['amu_base']))
+    press_depth = float(payload.get('press_depth',  _PRESS_DEPTH))
+    gsd         =       payload.get('grid_spacing_deg', None)
+    grid_spacing = float(gsd) if gsd is not None else _cache['grid_spacing_default']
 
-    return {
-        'lons':       lons_1d,
-        'lats':       lats_1d,
-        'pressure':   P_out.tolist(),   # 2-D list [nlat][nlon], MPa
-        'dp':         dp_list,
-        'velocity':   vel_list,
-        'boundaries': orig_bounds,
-        'timing_s':   time.perf_counter() - t0,
-    }
+    pcoeff = _cache['pcoeff_base'] * (amu / _cache['amu_base'])
+
+    P_out, vel_ew, vel_ns, DP, lons_grd, lats_grd = _run_outputgrids(
+        amu, press_depth, grid_spacing, pcoeff, _cache['geom'])
+
+    return _serialise_outputs(
+        P_out, vel_ew, vel_ns, DP, _cache['geom']['iwall'],
+        lons_grd, lats_grd, _cache['orig_bounds'], t0)
+
+
+def run_computation(payload: dict) -> dict:
+    """Single-call wrapper — solve then grid (kept for compatibility)."""
+    t0 = time.perf_counter()
+    solve_result = solve_only(payload)
+    grid_result  = grid_only(payload)
+    grid_result['cached']   = solve_result['cached']
+    grid_result['timing_s'] = time.perf_counter() - t0
+    return grid_result
