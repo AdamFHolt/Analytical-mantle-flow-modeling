@@ -301,13 +301,13 @@ function finishProgress() {
   progBar.style.width = '100%';
 }
 
-// Draw the plate-velocity plasma colour bar once on load.
+// Draw the plate-velocity colour bar once on load.
 (function() {
   const cvs = document.getElementById('plate-vel-cbar');
   if (!cvs) return;
   const ctx = cvs.getContext('2d');
-  for (let px = 0; px < 60; px++) {
-    ctx.fillStyle = d3.interpolatePlasma(0.15 + 0.85 * px / 59);
+  for (let px = 0; px < 180; px++) {
+    ctx.fillStyle = d3.interpolateViridis(1 - px / 179);
     ctx.fillRect(px, 0, 1, 8);
   }
 })();
@@ -316,6 +316,7 @@ function finishProgress() {
 
 let _plateVelGrid  = [];   // [{lon, lat, domain, vew, vns}] from last geometry load
 let _trenchVelGrid = [];   // [{lon, lat}] positions only
+let _lastPlateVels = [];   // last rendered plate velocities (for CSV export)
 let _spDomainIdx   = null; // 1-indexed domain of SP
 let _isEarth       = false;
 let _lastEulerPole = null; // {lat, lon} for resize redraw
@@ -371,8 +372,12 @@ selModel.addEventListener('change', () => {
   gTrenchVel.selectAll('.trench-vel-arrow').remove();
   gEulerPole.selectAll('.euler-pole-marker').remove();
   _plateVelGrid = []; _trenchVelGrid = []; _spDomainIdx = null; _lastEulerPole = null;
+  _lastPlateVels = [];
   document.getElementById('colorbar').style.display = 'none';
-  document.getElementById('plate-vel-key').style.display = 'none';
+  document.getElementById('plate-vel-bar').style.display = 'none';
+  document.getElementById('plate-vel-arrow-key').style.display = 'none';
+  document.getElementById('btn-pv-png').disabled = true;
+  document.getElementById('btn-pv-csv').disabled = true;
   lastResult = null;
   loadGeometry(selModel.value);
 });
@@ -488,7 +493,7 @@ function renderPlateVelocities(vels) {
   const { w, h } = svgSize();
   // Scale: arrow representing vmax mm/yr ≈ 3 % of the shorter map dimension
   const arrowScale = Math.min(w, h) * 0.03 / vmax;
-  const colorScale = s => d3.interpolatePlasma(0.15 + 0.85 * Math.min(1, s / vmax));
+  const colorScale = s => d3.interpolateViridis(1 - Math.min(1, s / vmax));
 
   const arrows = vels.map(v => {
     const spd = Math.hypot(v.vew, v.vns);
@@ -500,11 +505,21 @@ function renderPlateVelocities(vels) {
     return { lon: v.lon, lat: v.lat, _dx: dx, _dy: dy, spd };
   }).filter(Boolean);
 
-  // Update plate-vel legend swatch
-  const pvKey = document.getElementById('plate-vel-key');
+  // Store for CSV export (use the input vels, which have vew/vns)
+  _lastPlateVels = vels.filter(v => isFinite(v.vew) && isFinite(v.vns));
+  document.getElementById('btn-pv-png').disabled = false;
+  document.getElementById('btn-pv-csv').disabled = false;
+
+  // Update plate-vel bar and legend arrow key
+  const pvBar = document.getElementById('plate-vel-bar');
+  if (pvBar) {
+    pvBar.style.display = 'block';
+    document.getElementById('plate-vel-vmax').textContent = `${vmax}`;
+  }
+  const pvKey = document.getElementById('plate-vel-arrow-key');
   if (pvKey) {
     pvKey.style.display = 'flex';
-    document.getElementById('plate-vel-vmax').textContent = `${vmax} mm/yr`;
+    document.getElementById('plate-vel-arrow-label').textContent = `${vmax} mm/yr`;
   }
 
   gPlateVel.selectAll('.plate-vel-arrow')
@@ -786,7 +801,9 @@ function renderColorbar() {
 function updateVelScaleLegend() {
   const s = getVelScale();
   const el1 = document.getElementById('plate-vel-vmax');
-  if (el1) el1.textContent = `${s} mm/yr`;
+  if (el1) el1.textContent = `${s}`;
+  const el2 = document.getElementById('plate-vel-arrow-label');
+  if (el2) el2.textContent = `${s} mm/yr`;
   // Asthenospheric flow arrow key — only show after a run has produced results.
   const item = document.getElementById('vel-key-item');
   if (item && lastResult) {
@@ -797,30 +814,117 @@ function updateVelScaleLegend() {
 
 // ── Export ──────────────────────────────────────────────────────────────────
 
-/** Download the current map SVG rendered to PNG. */
-function exportPNG() {
+const EXPORT_SCALE = 2;  // output at 2× screen resolution
+
+/**
+ * Inject an inline <style> + explicit dimensions into the SVG so that class-
+ * based styles survive when the SVG is loaded as a standalone <img> (external
+ * stylesheets are not available in that context).  Returns the injected element
+ * so the caller can remove it after serialisation.
+ */
+function _svgExportSetup(svgEl, pw, ph) {
+  svgEl.setAttribute('width',  pw);
+  svgEl.setAttribute('height', ph);
+  const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.textContent =
+    '.sphere{fill:#0d1b2a}' +
+    '.graticule{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:0.5}' +
+    '.land{fill:#2a3a4a;stroke:#4a6070;stroke-width:0.4}' +
+    '.boundary{fill:none;stroke-width:1.4}' +
+    '.boundary-0{stroke:#60a0ff}' +
+    '.boundary-1{stroke:#ff6040;stroke-width:2.2}' +
+    '.boundary-2{stroke:#a0c860}' +
+    '.vel-arrow{stroke:#ffee80;stroke-width:2;fill:none;marker-end:url(#arrowhead)}' +
+    '.plate-vel-arrow{stroke-width:2.5;fill:none}' +
+    '.trench-vel-arrow{stroke:#00e8ff;stroke-width:2.5;fill:none;marker-end:url(#trench-arrowhead)}' +
+    '.trench-tooth{fill:#ff6040;stroke:none}' +
+    '.euler-pole-marker{stroke:#ffaa00;stroke-width:2;fill:none}';
+  svgEl.insertBefore(style, svgEl.firstChild);
+  return style;
+}
+
+function _svgExportTeardown(svgEl, style) {
+  svgEl.removeChild(style);
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+}
+
+/** Serialise svgEl to a blob URL and resolve with the loaded Image. */
+function _svgToImage(svgEl) {
+  const data = new XMLSerializer().serializeToString(svgEl);
+  const url  = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }));
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.src = url;
+  });
+}
+
+function _downloadCanvas(canvas, filename) {
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+
+/** Download pressure map + mantle flow vectors as PNG at 2× resolution. */
+async function exportPNG() {
   if (!lastResult) return;
-  const svgEl = document.getElementById('map-svg');
   const { w, h } = svgSize();
-  const svgData = new XMLSerializer().serializeToString(svgEl);
-  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(svgBlob);
-  const img = new Image();
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0d1b2a';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-    const a = document.createElement('a');
-    a.download = 'mantle-flow.png';
-    a.href = canvas.toDataURL('image/png');
-    a.click();
-  };
-  img.src = url;
+  const pw = w * EXPORT_SCALE, ph = h * EXPORT_SCALE;
+  const svgEl = document.getElementById('map-svg');
+
+  // Hide the SVG-embedded pressure <image>; we draw pressureCanvas directly
+  // so the browser doesn't need to load a data-URL from within an <img> SVG.
+  const pressImg = gPressure.select('image');
+  pressImg.style('display', 'none');
+  const style = _svgExportSetup(svgEl, pw, ph);
+  const img = await _svgToImage(svgEl);
+  _svgExportTeardown(svgEl, style);
+  pressImg.style('display', null);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = pw; canvas.height = ph;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d1b2a';
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.drawImage(pressureCanvas, 0, 0, pw, ph);  // pressure field (upscaled)
+  ctx.drawImage(img, 0, 0);                      // land, bounds, flow arrows at 2×
+  _downloadCanvas(canvas, 'mantle-flow.png');
+}
+
+/** Download plate velocity map as PNG at 2× resolution (geometry view). */
+async function exportPlateVelPNG() {
+  if (!_lastPlateVels.length) return;
+  const { w, h } = svgSize();
+  const pw = w * EXPORT_SCALE, ph = h * EXPORT_SCALE;
+  const svgEl = document.getElementById('map-svg');
+  const inPressureView = lastResult !== null;
+
+  // Switch to geometry view momentarily for the snapshot
+  if (inPressureView) {
+    gPressure.style('display', 'none');
+    gVelocity.style('display', 'none');
+    gPlateVel.style('display', null);
+    gTrenchVel.style('display', null);
+  }
+  const style = _svgExportSetup(svgEl, pw, ph);
+  const img = await _svgToImage(svgEl);
+  _svgExportTeardown(svgEl, style);
+  if (inPressureView) {
+    gPressure.style('display', null);
+    gVelocity.style('display', null);
+    gPlateVel.style('display', 'none');
+    gTrenchVel.style('display', 'none');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = pw; canvas.height = ph;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d1b2a';
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.drawImage(img, 0, 0);
+  _downloadCanvas(canvas, 'plate-velocities.png');
 }
 
 /** Download pressure grid as CSV (lon, lat, pressure_MPa). */
@@ -842,8 +946,26 @@ function exportCSV() {
   URL.revokeObjectURL(a.href);
 }
 
+/** Download plate velocity grid as CSV (lon, lat, vew, vns, speed — mm/yr). */
+function exportPlateVelCSV() {
+  if (!_lastPlateVels.length) return;
+  const rows = ['lon,lat,vew_mmyr,vns_mmyr,speed_mmyr'];
+  _lastPlateVels.forEach(v => {
+    const spd = Math.hypot(v.vew, v.vns);
+    rows.push(`${normLon(v.lon).toFixed(2)},${v.lat.toFixed(2)},${v.vew.toFixed(2)},${v.vns.toFixed(2)},${spd.toFixed(2)}`);
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.download = 'plate-velocities.csv';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 document.getElementById('btn-png').addEventListener('click', exportPNG);
 document.getElementById('btn-csv').addEventListener('click', exportCSV);
+document.getElementById('btn-pv-png').addEventListener('click', exportPlateVelPNG);
+document.getElementById('btn-pv-csv').addEventListener('click', exportPlateVelCSV);
 
 // ── Scale input listeners ────────────────────────────────────────────────────
 

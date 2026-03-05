@@ -30,12 +30,62 @@
       </div>
     </div>
 
-    <!-- Colour-bar -->
-    <div id="colorbar">
-      <div class="cb-labels">
-        <span id="cb-min">–</span>
-        <span style="color:#b0b8cc">Pressure (MPa)</span>
-        <span id="cb-max">+</span>
+    <!-- Bottom-left colorbars (stacked) -->
+    <div id="bottom-bars">
+      <div id="colorbar">
+        <div class="cb-labels">
+          <span id="cb-min">–</span>
+          <span style="color:#b0b8cc">Pressure (MPa)</span>
+          <span id="cb-max">+</span>
+        </div>
+      </div>
+      <div id="plate-vel-bar" style="display:none">
+        <canvas id="plate-vel-cbar" width="180" height="8" style="display:block;border-radius:2px"></canvas>
+        <div class="cb-labels">
+          <span>0</span>
+          <span style="color:#b0b8cc">Plate speed (mm/yr)</span>
+          <span id="plate-vel-vmax">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Legend overlay (top-left) -->
+    <div id="map-legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ff6040;height:4px"></div>
+        <span>Trench / slab wall</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#60a0ff"></div>
+        <span>Other plate bounds</span>
+      </div>
+      <!-- Plate velocity arrow scale (shown when geometry loads) -->
+      <div class="legend-item" id="plate-vel-arrow-key" style="display:none;margin-top:2px">
+        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
+          <defs>
+            <marker id="lk-plate-vel" viewBox="0 -4 8 8" refX="7" refY="0"
+                    markerWidth="3" markerHeight="3" orient="auto">
+              <path d="M0,-4L8,0L0,4" fill="#c0c8e0"/>
+            </marker>
+          </defs>
+          <line x1="2" y1="7" x2="30" y2="7" stroke="#c0c8e0" stroke-width="1.5"
+                marker-end="url(#lk-plate-vel)"/>
+        </svg>
+        <span id="plate-vel-arrow-label" style="white-space:nowrap">— mm/yr</span>
+      </div>
+      <!-- Asthenospheric flow arrow scale (shown after run) -->
+      <div class="legend-item" id="vel-key-item" style="display:none;margin-top:2px">
+        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
+          <defs>
+            <marker id="lk-arrow" viewBox="0 -4 8 8" refX="7" refY="0"
+                    markerWidth="3" markerHeight="3" orient="auto">
+              <path d="M0,-4L8,0L0,4" fill="#ffee80"/>
+            </marker>
+          </defs>
+          <line x1="2" y1="7" x2="30" y2="7" stroke="#ffee80" stroke-width="1.2"
+                marker-end="url(#lk-arrow)"/>
+        </svg>
+        <span id="vel-key-label" style="white-space:nowrap">— cm/yr</span>
       </div>
     </div>
   </div>
@@ -53,14 +103,10 @@
         <option value="Slab2.0Final_NoJapTail_nnr_FS">Earth</option>
       </select>
     </div>
-
-    <h2>Rheology</h2>
     <div class="control-group">
       <label>Viscosity (Pa·s)</label>
       <input type="number" id="inp-visc" value="3e20" step="any">
     </div>
-
-    <h2>Basal boundary</h2>
     <div class="control-group">
       <label>Base of asthenosphere</label>
       <select id="sel-bc">
@@ -68,8 +114,6 @@
         <option value="no_slip">No slip</option>
       </select>
     </div>
-
-    <h2>Velocities</h2>
     <!-- Non-Earth: Euler pole + trench inputs -->
     <div id="vel-idealized" style="display:none">
       <div class="control-group">
@@ -122,80 +166,19 @@
 
     <!-- ── Export ─────────────────────────────────────────────── -->
     <h2>Export</h2>
-    <div class="control-group export-group">
-      <button class="btn-export" id="btn-png" disabled>&#128247; PNG</button>
-      <button class="btn-export" id="btn-csv" disabled>&#128196; CSV</button>
-    </div>
-
-    <!-- ── Legend ─────────────────────────────────────────────── -->
-    <h2>Legend</h2>
     <div class="control-group">
-      <div class="legend-item">
-        <div class="legend-swatch" style="background:#ff6040;height:4px"></div>
-        <span>Trench / slab wall</span>
-      </div>
-      <div class="legend-item">
-        <div class="legend-swatch" style="background:#60a0ff"></div>
-        <span>Other plate bounds</span>
-      </div>
-
-      <!-- Plate velocity colour bar -->
-      <div class="legend-item" style="margin-top:6px">
-        <canvas id="plate-vel-cbar" width="60" height="8" style="flex-shrink:0;border-radius:2px"></canvas>
-        <span style="white-space:nowrap">Plate velocity</span>
-      </div>
-      <div class="legend-item" id="plate-vel-key" style="display:none;padding-left:4px">
-        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
-          <defs>
-            <marker id="lk-plate" viewBox="0 -4 8 8" refX="7" refY="0"
-                    markerWidth="3" markerHeight="3" orient="auto">
-              <path d="M0,-4L8,0L0,4" fill="#f0c040"/>
-            </marker>
-          </defs>
-          <line x1="2" y1="7" x2="30" y2="7" stroke="#f0c040" stroke-width="1.5"
-                marker-end="url(#lk-plate)"/>
-        </svg>
-        <span id="plate-vel-vmax" style="white-space:nowrap;color:#f0c040">— mm/yr</span>
-      </div>
-
-      <!-- Trench velocity -->
-      <div class="legend-item" style="margin-top:2px">
-        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
-          <defs>
-            <marker id="lk-trench" viewBox="0 -4 8 8" refX="7" refY="0"
-                    markerWidth="3" markerHeight="3" orient="auto">
-              <path d="M0,-4L8,0L0,4" fill="#00e8ff"/>
-            </marker>
-          </defs>
-          <line x1="2" y1="7" x2="30" y2="7" stroke="#00e8ff" stroke-width="1.5"
-                marker-end="url(#lk-trench)"/>
-        </svg>
-        <span>Trench velocity</span>
-      </div>
-
-      <div class="legend-item" style="margin-top:6px">
-        <div class="legend-swatch" style="background:linear-gradient(to right,#0000ff,#ffffff,#ff0000)"></div>
-        <span>Pressure (MPa)</span>
-      </div>
-      <!-- Asthenospheric flow key — populated by JS after each run -->
-      <div class="legend-item" id="vel-key-item" style="display:none;margin-top:4px">
-        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
-          <defs>
-            <marker id="lk-arrow" viewBox="0 -4 8 8" refX="7" refY="0"
-                    markerWidth="3" markerHeight="3" orient="auto">
-              <path d="M0,-4L8,0L0,4" fill="#ffee80"/>
-            </marker>
-          </defs>
-          <line x1="2" y1="7" x2="30" y2="7" stroke="#ffee80" stroke-width="1.2"
-                marker-end="url(#lk-arrow)"/>
-        </svg>
-        <span id="vel-key-label" style="white-space:nowrap">— cm/yr</span>
+      <label>Pressure map</label>
+      <div class="export-group">
+        <button class="btn-export" id="btn-png" disabled>PNG</button>
+        <button class="btn-export" id="btn-csv" disabled>CSV</button>
       </div>
     </div>
-
-    <h2>About</h2>
-    <div class="control-group" style="color:#6070a0;line-height:1.5">
-      <p>The solver reads <code>flow_computations/inputs/</code> directly via the Flask backend.</p>
+    <div class="control-group">
+      <label>Plate velocities</label>
+      <div class="export-group">
+        <button class="btn-export" id="btn-pv-png" disabled>PNG</button>
+        <button class="btn-export" id="btn-pv-csv" disabled>CSV</button>
+      </div>
     </div>
 
   </div><!-- #controls -->

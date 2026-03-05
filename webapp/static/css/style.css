@@ -64,7 +64,7 @@ main {
 .plate-vel-arrow { stroke-width: 2.5; fill: none; }
 
 /* Trench velocity arrows */
-.trench-vel-arrow { stroke: #00e8ff; stroke-width: 1.8; fill: none; marker-end: url(#trench-arrowhead); }
+.trench-vel-arrow { stroke: #00e8ff; stroke-width: 2.5; fill: none; marker-end: url(#trench-arrowhead); }
 
 /* ── Loading overlay ───────────────────────────────────────────────────── */
 #loading-overlay {
@@ -123,22 +123,45 @@ main {
 }
 #btn-stop:hover { background: #501a1a; }
 
-/* Colour-bar */
-#colorbar {
+/* Bottom-left colorbars */
+#bottom-bars {
   position: absolute;
   bottom: 18px;
   left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+#colorbar,
+#plate-vel-bar {
   background: #16213ecc;
   border: 1px solid #0f3460;
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 11px;
-  pointer-events: none;
 }
 #colorbar canvas { display: block; }
-#colorbar .cb-labels {
+.cb-labels {
   display: flex; justify-content: space-between; margin-top: 3px; color: #b0b8cc;
 }
+
+/* Map legend overlay (top-left) */
+#map-legend {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: #16213ecc;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 11px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 
 /* ── Controls panel ────────────────────────────────────────────── */
 #controls {
