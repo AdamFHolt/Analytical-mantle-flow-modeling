@@ -703,7 +703,7 @@ def findpressure_edge(lonobs,latobs,lonaa,lataa,lonbb,latbb,gm,rad_km):
 	return (P_plane - P_xy + P_sphere - Ppt_avg)
 
 
-def buildvector(iwall,alpha,ndomain,idl,idr,vtopl,vtopr,vbotl,vbotr,vt,n_segs,num_segs,flux_slab,flux_vel,flux_width,polarity,flux_alpha,no_flux_for_slabtails,rad_km,alith,ah1):
+def buildvector(iwall,alpha,ndomain,idl,idr,vtopl,vtopr,vbotl,vbotr,vt,n_segs,num_segs,flux_slab,flux_vel,flux_width,polarity,flux_alpha,no_flux_for_slabtails,rad_km,alith,ah1,flux_mask=None):
 
 	vel_term = 1.e-3/(365. * 24. * 60. * 60.) # mm/yr -> m/s
 
@@ -717,6 +717,10 @@ def buildvector(iwall,alpha,ndomain,idl,idr,vtopl,vtopr,vbotl,vbotr,vt,n_segs,nu
 		elif flux_slab == 1:
 			trench_flux_vel = (flux_width/(ah1 - alith)) * (flux_vel * vel_term)
 		else:
+			trench_flux_vel = 0.
+
+		# If a per-segment mask is given, suppress flux for excluded segments.
+		if flux_mask is not None and not flux_mask[jobs]:
 			trench_flux_vel = 0.
 
 		if iwall[jobs] == 1 and polarity[jobs] == 1: 	# dipping to left

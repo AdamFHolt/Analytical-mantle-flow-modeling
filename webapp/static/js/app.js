@@ -226,6 +226,7 @@ async function loadGeometry(model) {
     // Show / hide velocity controls and plate-dimension controls
     document.getElementById('vel-idealized').style.display  = _isEarth ? 'none'  : 'block';
     document.getElementById('vel-earth-note').style.display = _isEarth ? 'block' : 'none';
+    document.getElementById('earth-flux').style.display     = _isEarth ? 'block' : 'none';
     document.getElementById('simple-dims').style.display    = (model === 'Simple') ? 'block' : 'none';
 
     if (!_isEarth) {
@@ -415,7 +416,16 @@ btnRun.addEventListener('click', async () => {
     press_depth:      parseFloat(inpDepth.value) * 1000,
     grid_spacing_deg: parseFloat(document.getElementById('sel-res').value),
   };
-  if (!_isEarth) {
+  if (_isEarth) {
+    const fluxMode = document.getElementById('sel-slab-flux').value;
+    if (fluxMode === 'both' || fluxMode === 'penetrating') {
+      fullPayload.flux_slab  = 2;
+      fullPayload.flux_alpha = 0.5;
+      fullPayload.flux_width = parseFloat(document.getElementById('inp-flux-width').value) * 1000;
+      if (fluxMode === 'penetrating') fullPayload.flux_penetrating = true;
+    }
+    // else defaults: flux_slab=0 (no flux)
+  } else {
     fullPayload.euler_lat  = parseFloat(document.getElementById('inp-euler-lat') .value);
     fullPayload.euler_lon  = parseFloat(document.getElementById('inp-euler-lon') .value);
     fullPayload.euler_rate = parseFloat(document.getElementById('inp-euler-rate').value);
@@ -694,18 +704,34 @@ function renderPressure(data) {
  *   type 1 → slab wall / trench (red) + teeth triangles
  *   type 2 → strike-slip (green)
  */
+function trenchColor(b) {
+  const penetratingMode = document.getElementById('sel-slab-flux').value === 'penetrating';
+  if (penetratingMode && b.penetrating) return '#ffffff';
+  return '#ff6040';
+}
+
 function renderBoundaries(bounds) {
   if (!bounds || !bounds.length) return;
   _lastBounds = bounds;
 
-  const features = bounds.map(b =>
-    lineFeature(b.lona, b.lata, b.lonb, b.latb, { btype: b.type })
+  // Sort so penetrating type-1 segments render last (on top in SVG).
+  const sorted = [...bounds].sort((a, b) => {
+    const aTop = a.type === 1 && a.penetrating &&
+                 document.getElementById('sel-slab-flux').value === 'penetrating';
+    const bTop = b.type === 1 && b.penetrating &&
+                 document.getElementById('sel-slab-flux').value === 'penetrating';
+    return aTop - bTop;
+  });
+  const features = sorted.map(b =>
+    lineFeature(b.lona, b.lata, b.lonb, b.latb, { btype: b.type, penetrating: b.penetrating })
   );
 
+  gBounds.selectAll('.boundary').remove();
   gBounds.selectAll('.boundary')
     .data(features)
     .join('path')
       .attr('class', d => `boundary boundary-${d.properties.btype}`)
+      .style('stroke', d => d.properties.btype === 1 ? trenchColor(d.properties) : null)
       .attr('d', path);
 
   // ── Subduction teeth on type-1 segments ───────────────────────────────────
@@ -716,7 +742,9 @@ function renderBoundaries(bounds) {
   const TOOTH_W = 5;         // half-base width along segment
   const MIN_LEN = 8;         // skip segments shorter than this (px)
 
-  bounds.filter(b => b.type === 1).forEach(b => {
+  const penetratingMode = document.getElementById('sel-slab-flux').value === 'penetrating';
+  const type1 = sorted.filter(b => b.type === 1);
+  type1.forEach(b => {
     const pa = proj([normLon(b.lona), b.lata]);
     const pb = proj([normLon(b.lonb), b.latb]);
     if (!pa || !pb) return;
@@ -732,6 +760,7 @@ function renderBoundaries(bounds) {
     const nx = uy * pol, ny = -ux * pol;
 
     const nTeeth = Math.max(1, Math.round(len / TOOTH_SPACING));
+    const fill = trenchColor(b);
     for (let k = 0; k < nTeeth; k++) {
       const t  = (k + 0.5) / nTeeth;
       const mx = pa[0] + dx * t, my = pa[1] + dy * t;
@@ -740,6 +769,7 @@ function renderBoundaries(bounds) {
       const base2 = [mx + ux * TOOTH_W,  my + uy * TOOTH_W];
       gBounds.append('polygon')
         .attr('class', 'trench-tooth')
+        .style('fill', fill)
         .attr('points',
           `${base1[0]},${base1[1]} ${base2[0]},${base2[1]} ${apex[0]},${apex[1]}`);
     }
@@ -1151,8 +1181,15 @@ function _reloadSimpleGeometry() {
 });
 
 // ── Revert to geometry view when model parameters change ────────────────────
-// Basal BC affects the solve cache key → full revert required.
+// Basal BC and slab flux affect the solve cache key → full revert required.
 document.getElementById('sel-bc').addEventListener('change', revertToGeometry);
+document.getElementById('sel-slab-flux').addEventListener('change', () => {
+  const active = document.getElementById('sel-slab-flux').value !== 'none';
+  document.getElementById('inp-flux-width').disabled = !active;
+  if (_lastBounds) renderBoundaries(_lastBounds);
+  revertToGeometry();
+});
+document.getElementById('inp-flux-width').addEventListener('change', revertToGeometry);
 // Viscosity / depth only affect the grid phase → re-run grid if result exists.
 document.getElementById('inp-visc').addEventListener('change', () => {
   if (lastResult) rerunGrid(); else revertToGeometry();

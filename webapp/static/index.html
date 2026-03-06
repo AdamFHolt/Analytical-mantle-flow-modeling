@@ -106,6 +106,23 @@
         <option value="no_slip">No slip</option>
       </select>
     </div>
+    <!-- Earth: slab flux options -->
+    <div id="earth-flux" class="control-group" style="display:none">
+      <div class="scale-row">
+        <div class="scale-col">
+          <label>Slab flux</label>
+          <select id="sel-slab-flux">
+            <option value="none">None</option>
+            <option value="both">All slabs (α = 0.5)</option>
+            <option value="penetrating">Penetrating slabs (α = 0.5)</option>
+          </select>
+        </div>
+        <div class="scale-col">
+          <label>Width (km)</label>
+          <input type="number" id="inp-flux-width" value="500" min="50" step="50" disabled>
+        </div>
+      </div>
+    </div>
     <!-- Non-Earth: Euler pole + trench inputs -->
     <div id="vel-idealized" style="display:none">
       <div class="control-group">

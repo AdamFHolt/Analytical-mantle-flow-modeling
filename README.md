@@ -24,6 +24,28 @@ jupyter lab
 
 Open `notebooks/workflow_examples.ipynb` and select the `Python (mantle-flow-modeling)` kernel.
 
+## Web app
+
+An interactive browser-based interface for running models and visualising results.
+
+### Setup (first time only)
+
+```bash
+conda activate mantle-flow-modeling
+pip install flask
+```
+
+### Run
+
+```bash
+conda activate mantle-flow-modeling
+python webapp/app.py
+```
+
+Open http://localhost:5001 in your browser.
+
+The app lets you select a plate model, set viscosity and boundary conditions, solve for the pressure field, and explore velocity/pressure output interactively. Results can be exported as PNG or CSV.
+
 ## Main workflow options
 
 ### Notebook workflow (recommended)

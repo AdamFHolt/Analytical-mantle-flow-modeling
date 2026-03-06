@@ -57,6 +57,37 @@ _poly_cache = {}    # (id(bound_ind), spacing) → (polygons, polygon_points)
 # ── Earth / real-plate models (velocities come entirely from input files) ─────
 _EARTH_MODELS = {'Slab2.0Final_NoJapTail_nnr_FS'}
 
+# ── Subduction zones known to penetrate into the lower mantle (Slab2.0 model) ─
+# Indices map to large_wall_inds in Subbon_Slab2.0Final_NoJapTail_nnr_FS.inp.
+# Zone mapping (approximate centre coordinates):
+#   1  Alaska/Aleutians        (-155°E, 54°N)   stagnant/debated
+#   2  Kuril+Izu-Bonin+Mariana (141°E, 11–55°N) PARTIAL: Kamchatka (>46°N) and
+#                                                Mariana (<25°N) penetrate; IB/Japan stagnate
+#   3  Halmahera               (138°E,  -2°N)
+#   4  New Britain             (150°E,  -6°N)
+#   5  Vanuatu                 (168°E, -16°N)
+#   6  Tonga-Kermadec          (186°E, -18°N)   PENETRATING ✓
+#   7  Puysegur                (165°E, -47°N)
+#   8  Ryukyu/Nankai           (133°E,  32°N)   stagnant
+#   9  Manila                  (120°E,  19°N)   stagnant
+#  10  Philippine              (125°E,  15°N)
+#  11  Cascadia                (-125°E, 43°N)   stagnant
+#  12  South America           (-74°E, -40°N)   PENETRATING ✓
+#  13  Central America         (-85°E,   9°N)   PENETRATING ✓
+#  14  Lesser Antilles         (-58°E,  12°N)
+#  15  South Sandwich          (-28°E, -55°N)
+#  16  Aegean/Hellenic         (33°E,  36°N)    PENETRATING ✓
+#  17  Makran                  (61°E,  24°N)
+#  18  Sunda/Java/Sumatra      (93°E,   5°N)    PENETRATING ✓
+#  19  Burma/Andaman           (89°E,  27°N)
+# Source: Fukao & Obayashi (2013), van der Hilst et al. (1997), and others.
+_PENETRATING_ZONES = frozenset({2, 6, 12, 13, 16, 18})
+# For zones that only partially penetrate, flux is restricted to segments whose
+# midpoint latitude falls within at least one of the listed (lat_min, lat_max) windows.
+_ZONE_LAT_RANGES = {
+    2: [(46.0, 90.0), (-90.0, 25.0)],  # Kamchatka (>46°N) and Mariana (<25°N)
+}
+
 # ── Simple parametric model ───────────────────────────────────────────────────
 _SIMPLE_MODEL = 'Simple'
 
@@ -173,6 +204,14 @@ def get_geometry(model: str,
     trench_velocities = []
 
     for i in range(num_bounds):
+        mid_lat_i = (lata[i] + latb[i]) / 2.0
+        zone_i    = int(large_wall_inds[i])
+        if iwall[i] == 1 and zone_i in _PENETRATING_ZONES:
+            lat_ranges = _ZONE_LAT_RANGES.get(zone_i, None)
+            is_penetrating = (lat_ranges is None or
+                              any(lo <= mid_lat_i <= hi for lo, hi in lat_ranges))
+        else:
+            is_penetrating = False
         boundaries.append({
             'type':         int(iwall[i]),
             'lona':         _to_float(lona[i]),
@@ -182,6 +221,7 @@ def get_geometry(model: str,
             'left_domain':  int(idl[i]),
             'right_domain': int(idr[i]),
             'polarity':     int(polarity[i]),
+            'penetrating':  is_penetrating,
         })
 
         if iwall[i] == 1:
@@ -1090,6 +1130,7 @@ def solve_only(payload: dict) -> dict:
     flux_slab             = int(  payload.get('flux_slab',               0))
     flux_width            = float(payload.get('flux_width',        500_000.0))
     flux_alpha            = float(payload.get('flux_alpha',              0.0))
+    flux_penetrating      = bool( payload.get('flux_penetrating',       False))
     no_flux_for_slabtails = int(  payload.get('no_flux_for_slabtails',   1))
     euler_lat  = payload.get('euler_lat',  None)
     euler_lon  = payload.get('euler_lon',  None)
@@ -1101,7 +1142,7 @@ def solve_only(payload: dict) -> dict:
     length_deg = float(payload.get('length_deg', 45.0)) if model == _SIMPLE_MODEL else None
 
     cache_key = (
-        model, basal_bc, flux_slab, flux_width, flux_alpha,
+        model, basal_bc, flux_slab, flux_width, flux_alpha, flux_penetrating,
         no_flux_for_slabtails,
         round(float(euler_lat),  4) if euler_lat  is not None else None,
         round(float(euler_lon),  4) if euler_lon  is not None else None,
@@ -1164,6 +1205,16 @@ def solve_only(payload: dict) -> dict:
                 vt_ew[i] = float(trench_vew)
                 vt_ns[i] = float(trench_vns)
 
+    def _is_penetrating(i):
+        if iwall[i] != 1:
+            return False
+        zone = int(large_wall_inds[i])
+        if zone not in _PENETRATING_ZONES:
+            return False
+        mid_lat_i = (lata[i] + latb[i]) / 2.0
+        lat_ranges = _ZONE_LAT_RANGES.get(zone, None)
+        return lat_ranges is None or any(lo <= mid_lat_i <= hi for lo, hi in lat_ranges)
+
     orig_bounds = [
         {
             'type':        int(iwall[i]),
@@ -1174,6 +1225,7 @@ def solve_only(payload: dict) -> dict:
             'left_domain': int(idl[i]),
             'right_domain':int(idr[i]),
             'polarity':    int(polarity[i]),
+            'penetrating': _is_penetrating(i),
         }
         for i in range(num_bounds)
     ]
@@ -1215,6 +1267,26 @@ def solve_only(payload: dict) -> dict:
         _RAD_KM, _ALITH, _AH1, _EPS_FACT,
     )
 
+    # Build per-segment flux mask for the "penetrating slabs" option.
+    # For each slab wall segment: allow flux only if the zone penetrates AND
+    # the segment midpoint latitude is within any per-zone geographic limit.
+    if flux_penetrating and flux_slab != 0:
+        mid_lat = (lata + latb) / 2.0
+        flux_mask = np.zeros(n_segs, dtype=bool)
+        for i in range(n_segs):
+            if iwall[i] != 1:
+                continue
+            zone = int(large_wall_inds[i])
+            if zone not in _PENETRATING_ZONES:
+                continue
+            lat_ranges = _ZONE_LAT_RANGES.get(zone, None)
+            if lat_ranges is not None:
+                if not any(lo <= mid_lat[i] <= hi for lo, hi in lat_ranges):
+                    continue
+            flux_mask[i] = True
+    else:
+        flux_mask = None
+
     vector = buildvector(
         iwall, alpha, ndomain, idl, idr,
         vtopl, vtopr, vbotl, vbotr, vt,
@@ -1223,6 +1295,7 @@ def solve_only(payload: dict) -> dict:
         flux_width, polarity, flux_alpha,
         no_flux_for_slabtails,
         _RAD_KM, _ALITH, _AH1,
+        flux_mask=flux_mask,
     )
 
     pcoeff = inv(pkernel).dot(vector)
