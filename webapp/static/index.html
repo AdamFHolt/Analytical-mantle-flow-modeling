@@ -15,66 +15,79 @@
 
 <main>
 
-  <!-- ── Map ─────────────────────────────────────────────────── -->
-  <div id="map-wrap">
-    <canvas id="pressure-canvas" style="display:none"></canvas>
-    <svg id="map-svg"></svg>
+  <!-- ── Map column (globe + profile panel stacked vertically) ── -->
+  <div id="map-col">
 
-    <!-- Loading overlay -->
-    <div id="loading-overlay" style="display:none">
-      <div id="loading-box">
-        <div id="loading-label">Running BEM solver…</div>
-        <div id="progress-track"><div id="progress-bar"></div></div>
-        <div id="loading-sub">Matrix inversion + grid output (~15 s)</div>
-        <button id="btn-stop">&#9632; Stop</button>
-      </div>
-    </div>
+    <!-- ── Globe ───────────────────────────────────────────────── -->
+    <div id="map-wrap">
+      <canvas id="pressure-canvas" style="display:none"></canvas>
+      <svg id="map-svg"></svg>
 
-    <!-- Bottom-left colorbars (stacked) -->
-    <div id="bottom-bars">
-      <div id="colorbar" style="display:none">
-        <div class="cb-labels">
-          <span id="cb-min">–</span>
-          <span style="color:#b0b8cc">Pressure (MPa)</span>
-          <span id="cb-max">+</span>
+      <!-- Profile-mode hint overlay -->
+      <div id="profile-hint" style="display:none">Click first point on map</div>
+
+      <!-- Loading overlay -->
+      <div id="loading-overlay" style="display:none">
+        <div id="loading-box">
+          <div id="loading-label">Running BEM solver…</div>
+          <div id="progress-track"><div id="progress-bar"></div></div>
+          <div id="loading-sub">Matrix inversion + grid output (~15 s)</div>
+          <button id="btn-stop">&#9632; Stop</button>
         </div>
       </div>
-      <div id="plate-vel-bar" style="display:none">
-        <canvas id="plate-vel-cbar" width="180" height="8" style="display:block;border-radius:2px"></canvas>
-        <div class="cb-labels">
-          <span>0</span>
-          <span style="color:#b0b8cc">Plate speed (mm/yr)</span>
-          <span id="plate-vel-vmax">—</span>
+
+      <!-- Bottom-left colorbars (stacked) -->
+      <div id="bottom-bars">
+        <div id="colorbar" style="display:none">
+          <div class="cb-labels">
+            <span id="cb-min">–</span>
+            <span style="color:#b0b8cc">Pressure (MPa)</span>
+            <span id="cb-max">+</span>
+          </div>
+        </div>
+        <div id="plate-vel-bar" style="display:none">
+          <canvas id="plate-vel-cbar" width="180" height="8" style="display:block;border-radius:2px"></canvas>
+          <div class="cb-labels">
+            <span>0</span>
+            <span style="color:#b0b8cc">Plate speed (mm/yr)</span>
+            <span id="plate-vel-vmax">—</span>
+          </div>
         </div>
       </div>
+
+      <!-- Legend overlay (top-left) -->
+      <div id="map-legend">
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:#ff6040;height:4px"></div>
+          <span>Trench / slab wall</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:#60a0ff"></div>
+          <span>Other plate bounds</span>
+        </div>
+        <!-- Plate velocity arrow scale (shown when geometry loads) -->
+        <div class="legend-item" id="plate-vel-arrow-key" style="display:none;margin-top:2px">
+          <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
+            <defs>
+              <marker id="lk-plate-vel" viewBox="0 -4 8 8" refX="7" refY="0"
+                      markerWidth="3" markerHeight="3" orient="auto">
+                <path d="M0,-4L8,0L0,4" fill="#c0c8e0"/>
+              </marker>
+            </defs>
+            <line id="lk-plate-vel-line" x1="2" y1="7" x2="30" y2="7" stroke="#c0c8e0" stroke-width="1.5"
+                  marker-end="url(#lk-plate-vel)"/>
+          </svg>
+          <span id="plate-vel-arrow-label" style="white-space:nowrap">— mm/yr</span>
+        </div>
+      </div>
+    </div><!-- #map-wrap -->
+
+    <!-- ── Profile panel (wide, short; hidden until profile drawn) -->
+    <div id="profile-panel">
+      <svg id="profile-svg"></svg>
     </div>
 
-    <!-- Legend overlay (top-left) -->
-    <div id="map-legend">
-      <div class="legend-item">
-        <div class="legend-swatch" style="background:#ff6040;height:4px"></div>
-        <span>Trench / slab wall</span>
-      </div>
-      <div class="legend-item">
-        <div class="legend-swatch" style="background:#60a0ff"></div>
-        <span>Other plate bounds</span>
-      </div>
-      <!-- Plate velocity arrow scale (shown when geometry loads) -->
-      <div class="legend-item" id="plate-vel-arrow-key" style="display:none;margin-top:2px">
-        <svg width="34" height="14" style="flex-shrink:0;overflow:visible">
-          <defs>
-            <marker id="lk-plate-vel" viewBox="0 -4 8 8" refX="7" refY="0"
-                    markerWidth="3" markerHeight="3" orient="auto">
-              <path d="M0,-4L8,0L0,4" fill="#c0c8e0"/>
-            </marker>
-          </defs>
-          <line id="lk-plate-vel-line" x1="2" y1="7" x2="30" y2="7" stroke="#c0c8e0" stroke-width="1.5"
-                marker-end="url(#lk-plate-vel)"/>
-        </svg>
-        <span id="plate-vel-arrow-label" style="white-space:nowrap">— mm/yr</span>
-      </div>
-    </div>
-  </div>
+  </div><!-- #map-col -->
 
   <!-- ── Controls ─────────────────────────────────────────────── -->
   <div id="controls">
@@ -173,6 +186,15 @@
 
     <button id="btn-run">&#9654;  Run</button>
     <div id="status"></div>
+
+    <!-- ── Profile ────────────────────────────────────────────── -->
+    <h2>Profile</h2>
+    <div class="control-group">
+      <div class="export-group">
+        <button class="btn-export" id="btn-profile-draw" disabled>Draw Profile</button>
+        <button class="btn-export" id="btn-profile-clear" style="display:none">Clear</button>
+      </div>
+    </div>
 
     <!-- ── Export ─────────────────────────────────────────────── -->
     <h2>Export</h2>

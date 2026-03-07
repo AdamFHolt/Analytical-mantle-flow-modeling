@@ -32,12 +32,63 @@ main {
   overflow: hidden;
 }
 
-/* ── Map area ──────────────────────────────────────────────────── */
+/* ── Map column (globe + profile panel stacked) ────────────────── */
+#map-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Globe area ────────────────────────────────────────────────── */
 #map-wrap {
   flex: 1;
   position: relative;
   overflow: hidden;
   background: #0d1b2a;
+  min-height: 0;
+}
+
+/* ── Profile panel ─────────────────────────────────────────────── */
+#profile-panel {
+  height: 140px;
+  flex-shrink: 0;
+  background: #0a1520;
+  border-top: 1px solid #0f3460;
+  position: relative;
+  overflow: hidden;
+  display: none;
+}
+
+#profile-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Profile chart axes */
+#profile-svg .profile-axis path,
+#profile-svg .profile-axis line { stroke: #1e2e48; shape-rendering: crispEdges; }
+#profile-svg .profile-axis text { fill: #4a6080; font-size: 10px; }
+#profile-svg .profile-axis-label { fill: #4a6080; font-size: 10px; }
+#profile-svg .profile-hover-label { fill: #c0d0e8; font-size: 10px; }
+
+/* Profile-mode map hint */
+#profile-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #16213ecc;
+  border: 1px solid #ffe04060;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 12px;
+  color: #ffe080;
+  pointer-events: none;
+  z-index: 50;
+  white-space: nowrap;
 }
 
 #map-svg {

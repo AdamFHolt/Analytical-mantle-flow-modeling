@@ -148,6 +148,7 @@ const gPlateVel  = svg.append('g').attr('id', 'g-plate-vel');
 const gTrenchVel = svg.append('g').attr('id', 'g-trench-vel');
 const gVelocity  = svg.append('g').attr('id', 'g-velocity');
 const gEulerPole = svg.append('g').attr('id', 'g-euler-pole');
+const gProfile   = svg.append('g').attr('id', 'g-profile');   // topmost: profile arc + markers
 
 // Sphere outline
 gSphere.append('path')
@@ -193,6 +194,8 @@ function redrawStatic() {
   _reprojectArrows(gPlateVel,  '.plate-vel-arrow');
   _reprojectArrows(gTrenchVel, '.trench-vel-arrow');
   if (_lastEulerPole) updateEulerPoleMarker(_lastEulerPole.lat, _lastEulerPole.lon);
+  // Re-project profile arc on resize.
+  if (_profilePts.length > 0) _drawProfileArc();
 }
 
 /** Re-project stored arrow data after a projection change (resize). */
@@ -205,6 +208,238 @@ function _reprojectArrows(layer, cls) {
       .attr('x2', x0 + d._dx).attr('y2', y0 + d._dy);
   });
 }
+
+// ── Profile extraction ──────────────────────────────────────────────────────
+
+let _profileMode = false;
+let _profilePts  = [];    // [[lon, lat], ...] in D3 convention (−180..180), 0–2 pts
+let _profileData = null;  // [{dist_km, lon, lat, pressure}] from last extract
+
+/**
+ * Bilinear interpolation of the pressure grid at a single (lon, lat) point.
+ * lon is in D3 convention (−180..180); lastResult.lons are in 0..360.
+ */
+function _interpPressure(lon, lat) {
+  if (!lastResult) return null;
+  const { lons, lats, pressure } = lastResult;
+  const nlon = lons.length, nlat = lats.length;
+  if (nlon < 2 || nlat < 2) return null;
+  const dlon = lons[1] - lons[0];
+  const dlat = lats[1] - lats[0];
+  // Convert D3 lon (−180..180) to 0..360 to match the grid
+  let lon360 = lon < 0 ? lon + 360 : lon;
+  const latMin = Math.min(lats[0], lats[nlat - 1]);
+  const latMax = Math.max(lats[0], lats[nlat - 1]);
+  if (lat < latMin || lat > latMax) return null;
+  if (lon360 < lons[0] || lon360 > lons[nlon - 1]) return null;
+  const jf = (lon360 - lons[0]) / dlon;
+  const j0 = Math.max(0, Math.min(nlon - 2, Math.floor(jf)));
+  const tj = jf - j0;
+  const if_ = (lat - lats[0]) / dlat;
+  const i0 = Math.max(0, Math.min(nlat - 2, Math.floor(if_)));
+  const ti = if_ - i0;
+  const i1 = i0 + 1, j1 = j0 + 1;
+  const p00 = pressure[i0][j0], p01 = pressure[i0][j1];
+  const p10 = pressure[i1][j0], p11 = pressure[i1][j1];
+  if (!isFinite(p00) || !isFinite(p01) || !isFinite(p10) || !isFinite(p11)) return null;
+  return (1 - ti) * ((1 - tj) * p00 + tj * p01) + ti * ((1 - tj) * p10 + tj * p11);
+}
+
+/** Sample pressure along the great-circle path between p1 and p2 (N+1 points). */
+function _extractProfile(p1, p2, N = 200) {
+  const interp    = d3.geoInterpolate(p1, p2);
+  const totalKm   = d3.geoDistance(p1, p2) * 6371;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const [lon, lat] = interp(t);
+    pts.push({ t, lon, lat, dist_km: t * totalKm, pressure: _interpPressure(lon, lat) });
+  }
+  return pts;
+}
+
+/** Draw great-circle arc and endpoint markers for _profilePts onto gProfile. */
+function _drawProfileArc() {
+  gProfile.selectAll('*').remove();
+  if (_profilePts.length === 0) return;
+
+  // Endpoint circles
+  _profilePts.forEach(([lon, lat]) => {
+    const xy = proj([lon, lat]);
+    if (!xy) return;
+    gProfile.append('circle')
+      .attr('cx', xy[0]).attr('cy', xy[1]).attr('r', 5)
+      .attr('fill', 'none').attr('stroke', '#ffe060').attr('stroke-width', 2);
+  });
+
+  if (_profilePts.length < 2) return;
+
+  // Great-circle arc — D3's geoPath handles geodetic resampling automatically
+  gProfile.append('path')
+    .datum({ type: 'Feature', geometry: { type: 'LineString', coordinates: _profilePts } })
+    .attr('d', path)
+    .attr('fill', 'none')
+    .attr('stroke', '#ffe06088')
+    .attr('stroke-width', 1.5)
+    .attr('stroke-dasharray', '6,3');
+}
+
+/** Render the pressure profile chart in #profile-panel. */
+function _renderProfileChart(pts) {
+  const panel = document.getElementById('profile-panel');
+  panel.style.display = 'block';
+
+  const profileSvg = d3.select('#profile-svg');
+  profileSvg.selectAll('*').remove();
+
+  const totalW = panel.clientWidth  || 800;
+  const totalH = panel.clientHeight || 140;
+  const margin = { top: 14, right: 22, bottom: 32, left: 50 };
+  const W = Math.max(totalW - margin.left - margin.right, 100);
+  const H = Math.max(totalH - margin.top  - margin.bottom, 20);
+
+  profileSvg.attr('width', totalW).attr('height', totalH);
+  const g = profileSvg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const validPts = pts.filter(p => p.pressure !== null);
+  if (!validPts.length) {
+    g.append('text').attr('x', W / 2).attr('y', H / 2)
+      .attr('text-anchor', 'middle').attr('fill', '#4a6080').attr('font-size', 11)
+      .text('No pressure data along this path');
+    return;
+  }
+
+  const xMax   = d3.max(pts, p => p.dist_km);
+  const xScale = d3.scaleLinear().domain([0, xMax]).range([0, W]);
+
+  const pVals  = validPts.map(p => p.pressure);
+  const pAbs   = Math.max(Math.abs(d3.min(pVals)), Math.abs(d3.max(pVals)), 1);
+  const yScale = d3.scaleLinear().domain([-pAbs, pAbs]).range([H, 0]);
+
+  // Zero-pressure reference line
+  g.append('line')
+    .attr('x1', 0).attr('x2', W)
+    .attr('y1', yScale(0)).attr('y2', yScale(0))
+    .attr('stroke', '#1e2e48').attr('stroke-width', 1);
+
+  // Colored segments (one <line> per consecutive valid pair)
+  const vmax = getPressScale();
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (a.pressure === null || b.pressure === null) continue;
+    g.append('line')
+      .attr('x1', xScale(a.dist_km)).attr('y1', yScale(a.pressure))
+      .attr('x2', xScale(b.dist_km)).attr('y2', yScale(b.pressure))
+      .attr('stroke', pressureToColor((a.pressure + b.pressure) / 2, vmax))
+      .attr('stroke-width', 2);
+  }
+
+  // Axes
+  g.append('g').attr('class', 'profile-axis')
+    .attr('transform', `translate(0,${H})`)
+    .call(d3.axisBottom(xScale).ticks(6).tickFormat(d => Math.round(d)));
+  g.append('g').attr('class', 'profile-axis')
+    .call(d3.axisLeft(yScale).ticks(4).tickFormat(d => d.toFixed(0)));
+
+  // Axis labels
+  g.append('text').attr('class', 'profile-axis-label')
+    .attr('x', W / 2).attr('y', H + 28).attr('text-anchor', 'middle')
+    .text('Distance (km)');
+  g.append('text').attr('class', 'profile-axis-label')
+    .attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', -38)
+    .attr('text-anchor', 'middle').text('Pressure (MPa)');
+
+  // Hover crosshair
+  const hoverLine = g.append('line')
+    .attr('y1', 0).attr('y2', H)
+    .attr('stroke', '#ffffff28').attr('stroke-width', 1)
+    .attr('pointer-events', 'none').style('display', 'none');
+  const hoverLabel = g.append('text').attr('class', 'profile-hover-label')
+    .attr('pointer-events', 'none').style('display', 'none');
+
+  // Transparent rect to capture mouse events over the chart area
+  g.append('rect').attr('width', W).attr('height', H)
+    .attr('fill', 'none').attr('pointer-events', 'all')
+    .on('mousemove', function(event) {
+      const [mx] = d3.pointer(event);
+      if (mx < 0 || mx > W) { hoverLine.style('display', 'none'); hoverLabel.style('display', 'none'); return; }
+      hoverLine.style('display', null).attr('x1', mx).attr('x2', mx);
+      const distKm = xScale.invert(mx);
+      const nearest = validPts.reduce((a, b) =>
+        Math.abs(a.dist_km - distKm) < Math.abs(b.dist_km - distKm) ? a : b);
+      const anchor = mx > W * 0.65 ? 'end' : 'start';
+      const tx     = mx > W * 0.65 ? mx - 6 : mx + 6;
+      hoverLabel.style('display', null)
+        .attr('x', tx).attr('y', Math.max(12, yScale(nearest.pressure) - 5))
+        .attr('text-anchor', anchor)
+        .text(`${nearest.dist_km.toFixed(0)} km  ${nearest.pressure.toFixed(1)} MPa`);
+    })
+    .on('mouseleave', () => {
+      hoverLine.style('display', 'none');
+      hoverLabel.style('display', 'none');
+    });
+}
+
+/** Clear profile state, map arc, and panel. */
+function _clearProfile() {
+  _profileMode = false;
+  _profilePts  = [];
+  _profileData = null;
+  gProfile.selectAll('*').remove();
+  document.getElementById('profile-panel').style.display = 'none';
+  document.getElementById('profile-hint').style.display  = 'none';
+  document.getElementById('map-wrap').style.cursor = '';
+  document.getElementById('btn-profile-draw').textContent = 'Draw Profile';
+  document.getElementById('btn-profile-draw').disabled    = true;
+  document.getElementById('btn-profile-clear').style.display = 'none';
+}
+
+// ── Profile map-click handler ───────────────────────────────────────────────
+
+svg.on('click', function(event) {
+  if (!_profileMode) return;
+  const [px, py] = d3.pointer(event);
+  const lonlat = proj.invert([px, py]);
+  if (!lonlat || !isFinite(lonlat[0]) || !isFinite(lonlat[1])) return;
+
+  _profilePts.push(lonlat);
+  _drawProfileArc();
+
+  if (_profilePts.length === 1) {
+    document.getElementById('profile-hint').textContent = 'Click second point';
+  }
+
+  if (_profilePts.length >= 2) {
+    _profileMode = false;
+    document.getElementById('map-wrap').style.cursor = '';
+    document.getElementById('profile-hint').style.display = 'none';
+    _profileData = _extractProfile(_profilePts[0], _profilePts[1]);
+    _renderProfileChart(_profileData);
+    document.getElementById('btn-profile-draw').textContent = 'Redraw';
+    document.getElementById('btn-profile-draw').disabled    = false;
+    document.getElementById('btn-profile-clear').style.display = 'inline-block';
+  }
+});
+
+// ── Profile button listeners ────────────────────────────────────────────────
+
+document.getElementById('btn-profile-draw').addEventListener('click', () => {
+  if (!lastResult) return;
+  _profileMode = true;
+  _profilePts  = [];
+  _profileData = null;
+  gProfile.selectAll('*').remove();
+  document.getElementById('profile-panel').style.display = 'none';
+  const hint = document.getElementById('profile-hint');
+  hint.textContent = 'Click first point on map';
+  hint.style.display = 'block';
+  document.getElementById('map-wrap').style.cursor = 'crosshair';
+  document.getElementById('btn-profile-draw').textContent = 'Drawing…';
+  document.getElementById('btn-profile-draw').disabled    = true;
+  document.getElementById('btn-profile-clear').style.display = 'none';
+});
+
+document.getElementById('btn-profile-clear').addEventListener('click', _clearProfile);
 
 // ── Geometry (boundaries shown before computation) ─────────────────────────
 
@@ -373,6 +608,7 @@ function recomputeTrenchVelArrows() {
 const selModel = document.getElementById('sel-model');
 loadGeometry(selModel.value);
 selModel.addEventListener('change', () => {
+  _clearProfile();
   gPressure.selectAll('image').remove();
   gVelocity.selectAll('.vel-arrow').remove();
   gPlateVel.selectAll('.plate-vel-arrow').remove();
@@ -605,6 +841,12 @@ function renderResult(data) {
   const line = document.getElementById('lk-plate-vel-line');
   if (line) line.setAttribute('stroke', '#555');
   document.getElementById('depth-control').style.display = 'block';
+  // Enable profile button; re-render chart if an existing profile is shown.
+  document.getElementById('btn-profile-draw').disabled = false;
+  if (_profilePts.length === 2) {
+    _profileData = _extractProfile(_profilePts[0], _profilePts[1]);
+    _renderProfileChart(_profileData);
+  }
 }
 
 /**
@@ -613,6 +855,7 @@ function renderResult(data) {
  */
 function revertToGeometry() {
   if (!lastResult) return;
+  _clearProfile();
   lastResult = null;
   gPressure.selectAll('image').remove();
   gVelocity.selectAll('.vel-arrow').remove();
@@ -1053,6 +1296,7 @@ document.getElementById('btn-pv-csv').addEventListener('click', exportPlateVelCS
 document.getElementById('inp-press-scale').addEventListener('input', () => {
   renderColorbar();
   if (lastResult) renderPressure(lastResult);
+  if (_profileData) _renderProfileChart(_profileData);
 });
 
 document.getElementById('inp-vel-scale').addEventListener('input', () => {
