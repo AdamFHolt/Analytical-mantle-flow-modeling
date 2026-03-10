@@ -448,7 +448,7 @@ function _clearProfile() {
   document.getElementById('profile-hint').style.display  = 'none';
   document.getElementById('map-wrap').style.cursor = '';
   document.getElementById('btn-profile-draw').textContent = 'Draw Profile';
-  document.getElementById('btn-profile-draw').disabled    = true;
+  document.getElementById('btn-profile-draw').disabled    = !lastResult;
   document.getElementById('btn-profile-clear').style.display = 'none';
   document.getElementById('btn-profile-png').disabled = true;
   document.getElementById('btn-profile-csv').disabled = true;
