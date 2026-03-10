@@ -212,7 +212,7 @@ function _reprojectArrows(layer, cls) {
 // ── Profile extraction ──────────────────────────────────────────────────────
 
 let _profileMode = false;
-let _profilePts  = [];    // [[lon, lat], ...] in D3 convention (−180..180), 0–2 pts
+let _profilePts  = [];    // [[lon, lat], ...] in D3 convention (−180..180), 0–4 pts
 let _profileData = null;  // [{dist_km, lon, lat, pressure}] from last extract
 
 /**
@@ -277,16 +277,21 @@ function _pacificInterp(p1, p2) {
   };
 }
 
-/** Sample pressure along the great-circle path between p1 and p2 (N+1 points). */
-function _extractProfile(p1, p2, N = 200) {
-  const { interp, totalKm } = _pacificInterp(p1, p2);
-  const pts = [];
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    const [lon, lat] = interp(t);
-    pts.push({ t, lon, lat, dist_km: t * totalKm, pressure: _interpPressure(lon, lat) });
+/** Sample pressure along the piecewise great-circle path through waypoints (array of [lon,lat]). */
+function _extractProfile(waypoints, N = 100) {
+  const result  = [];
+  let cumDist   = 0;
+  for (let seg = 0; seg < waypoints.length - 1; seg++) {
+    const { interp, totalKm } = _pacificInterp(waypoints[seg], waypoints[seg + 1]);
+    const start = seg === 0 ? 0 : 1;  // skip duplicate junction point
+    for (let i = start; i <= N; i++) {
+      const t = i / N;
+      const [lon, lat] = interp(t);
+      result.push({ lon, lat, dist_km: cumDist + t * totalKm, pressure: _interpPressure(lon, lat) });
+    }
+    cumDist += totalKm;
   }
-  return pts;
+  return result;
 }
 
 /** Draw great-circle arc and endpoint markers for _profilePts onto gProfile. */
@@ -305,37 +310,36 @@ function _drawProfileArc() {
 
   if (_profilePts.length < 2) return;
 
-  // Sample 200 points along the Pacific-crossing arc and project individually,
-  // bypassing D3's antimeridian clipping (which fires at lon ±180 = map centre).
-  const N = 200;
-  const { interp } = _pacificInterp(_profilePts[0], _profilePts[1]);
+  // Draw each segment between consecutive waypoints individually.
+  const N       = 100;
   const halfW   = svgSize().w / 2;
   const lineGen = d3.line().x(d => d[0]).y(d => d[1]);
 
-  const segments = [[]];
-  let prevXY = null;
-  for (let i = 0; i <= N; i++) {
-    const xy = proj(interp(i / N));
-    if (!xy) {
-      if (segments[segments.length - 1].length > 0) segments.push([]);
-      prevXY = null;
-      continue;
+  for (let seg = 0; seg < _profilePts.length - 1; seg++) {
+    const { interp } = _pacificInterp(_profilePts[seg], _profilePts[seg + 1]);
+    const segments = [[]];
+    let prevXY = null;
+    for (let i = 0; i <= N; i++) {
+      const xy = proj(interp(i / N));
+      if (!xy) {
+        if (segments[segments.length - 1].length > 0) segments.push([]);
+        prevXY = null;
+        continue;
+      }
+      if (prevXY && Math.abs(xy[0] - prevXY[0]) > halfW) segments.push([]);
+      segments[segments.length - 1].push(xy);
+      prevXY = xy;
     }
-    // Break at map-edge crossings (large x-jump = arc crosses prime meridian).
-    if (prevXY && Math.abs(xy[0] - prevXY[0]) > halfW) segments.push([]);
-    segments[segments.length - 1].push(xy);
-    prevXY = xy;
+    segments.forEach(s => {
+      if (s.length < 2) return;
+      gProfile.append('path')
+        .attr('d', lineGen(s))
+        .attr('fill', 'none')
+        .attr('stroke', '#ffe06088')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6,3');
+    });
   }
-
-  segments.forEach(seg => {
-    if (seg.length < 2) return;
-    gProfile.append('path')
-      .attr('d', lineGen(seg))
-      .attr('fill', 'none')
-      .attr('stroke', '#ffe06088')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '6,3');
-  });
 }
 
 /** Render the pressure profile chart in #profile-panel. */
@@ -446,6 +450,8 @@ function _clearProfile() {
   document.getElementById('btn-profile-draw').textContent = 'Draw Profile';
   document.getElementById('btn-profile-draw').disabled    = true;
   document.getElementById('btn-profile-clear').style.display = 'none';
+  document.getElementById('btn-profile-png').disabled = true;
+  document.getElementById('btn-profile-csv').disabled = true;
 }
 
 // ── Profile map-click handler ───────────────────────────────────────────────
@@ -459,19 +465,23 @@ svg.on('click', function(event) {
   _profilePts.push(lonlat);
   _drawProfileArc();
 
-  if (_profilePts.length === 1) {
-    document.getElementById('profile-hint').textContent = 'Click second point';
+  const remaining = 4 - _profilePts.length;
+  if (remaining > 0) {
+    document.getElementById('profile-hint').textContent =
+      `Click point ${_profilePts.length + 1} of 4 (${remaining} remaining)`;
   }
 
-  if (_profilePts.length >= 2) {
+  if (_profilePts.length >= 4) {
     _profileMode = false;
     document.getElementById('map-wrap').style.cursor = '';
     document.getElementById('profile-hint').style.display = 'none';
-    _profileData = _extractProfile(_profilePts[0], _profilePts[1]);
+    _profileData = _extractProfile(_profilePts);
     _renderProfileChart(_profileData);
     document.getElementById('btn-profile-draw').textContent = 'Redraw';
     document.getElementById('btn-profile-draw').disabled    = false;
     document.getElementById('btn-profile-clear').style.display = 'inline-block';
+    document.getElementById('btn-profile-png').disabled = false;
+    document.getElementById('btn-profile-csv').disabled = false;
   }
 });
 
@@ -485,7 +495,7 @@ document.getElementById('btn-profile-draw').addEventListener('click', () => {
   gProfile.selectAll('*').remove();
   document.getElementById('profile-panel').style.display = 'none';
   const hint = document.getElementById('profile-hint');
-  hint.textContent = 'Click first point on map';
+  hint.textContent = 'Click point 1 of 4';
   hint.style.display = 'block';
   document.getElementById('map-wrap').style.cursor = 'crosshair';
   document.getElementById('btn-profile-draw').textContent = 'Drawing…';
@@ -897,8 +907,8 @@ function renderResult(data) {
   document.getElementById('depth-control').style.display = 'block';
   // Enable profile button; re-render chart if an existing profile is shown.
   document.getElementById('btn-profile-draw').disabled = false;
-  if (_profilePts.length === 2) {
-    _profileData = _extractProfile(_profilePts[0], _profilePts[1]);
+  if (_profilePts.length === 4) {
+    _profileData = _extractProfile(_profilePts);
     _renderProfileChart(_profileData);
   }
 }
@@ -1340,10 +1350,59 @@ function exportPlateVelCSV() {
   URL.revokeObjectURL(a.href);
 }
 
+/** Download profile chart as PNG at 2× resolution. */
+async function exportProfilePNG() {
+  if (!_profileData) return;
+  const panel = document.getElementById('profile-panel');
+  const svgEl = document.getElementById('profile-svg');
+  const pw = panel.clientWidth * EXPORT_SCALE;
+  const ph = panel.clientHeight * EXPORT_SCALE;
+  svgEl.setAttribute('width',  pw);
+  svgEl.setAttribute('height', ph);
+  // Inline CSS classes used by the profile chart
+  const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.textContent =
+    'text{font-family:sans-serif}' +
+    '.profile-axis path,.profile-axis line{stroke:#1e2e48;shape-rendering:crispEdges}' +
+    '.profile-axis text{fill:#4a6080;font-size:10px}' +
+    '.profile-axis-label{fill:#4a6080;font-size:10px}' +
+    '.profile-hover-label{fill:#c0d0e8;font-size:10px}';
+  svgEl.insertBefore(style, svgEl.firstChild);
+  const img = await _svgToImage(svgEl);
+  svgEl.removeChild(style);
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+  const canvas = document.createElement('canvas');
+  canvas.width = pw; canvas.height = ph;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d1b2a';
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.drawImage(img, 0, 0);
+  _downloadCanvas(canvas, 'pressure-profile.png');
+}
+
+/** Download profile data as CSV (dist_km, lon, lat, pressure_MPa). */
+function exportProfileCSV() {
+  if (!_profileData) return;
+  const rows = ['dist_km,lon,lat,pressure_MPa'];
+  _profileData.forEach(p => {
+    if (p.pressure !== null)
+      rows.push(`${p.dist_km.toFixed(1)},${normLon(p.lon).toFixed(3)},${p.lat.toFixed(3)},${p.pressure.toFixed(4)}`);
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.download = 'pressure-profile.csv';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 document.getElementById('btn-png').addEventListener('click', exportPNG);
 document.getElementById('btn-csv').addEventListener('click', exportCSV);
 document.getElementById('btn-pv-png').addEventListener('click', exportPlateVelPNG);
 document.getElementById('btn-pv-csv').addEventListener('click', exportPlateVelCSV);
+document.getElementById('btn-profile-png').addEventListener('click', exportProfilePNG);
+document.getElementById('btn-profile-csv').addEventListener('click', exportProfileCSV);
 
 // ── Scale input listeners ────────────────────────────────────────────────────
 
