@@ -274,14 +274,39 @@ function _drawProfileArc() {
 
   if (_profilePts.length < 2) return;
 
-  // Great-circle arc — D3's geoPath handles geodetic resampling automatically
-  gProfile.append('path')
-    .datum({ type: 'Feature', geometry: { type: 'LineString', coordinates: _profilePts } })
-    .attr('d', path)
-    .attr('fill', 'none')
-    .attr('stroke', '#ffe06088')
-    .attr('stroke-width', 1.5)
-    .attr('stroke-dasharray', '6,3');
+  // Sample 200 points along the great-circle and project each individually.
+  // This bypasses D3's geographic antimeridian clipping, which fires at lon ±180
+  // — the centre of this Pacific-centred map — and would split arcs there.
+  // d3.geoInterpolate always follows the shorter great-circle arc.
+  const N = 200;
+  const interp = d3.geoInterpolate(_profilePts[0], _profilePts[1]);
+  const halfW  = svgSize().w / 2;
+  const lineGen = d3.line().x(d => d[0]).y(d => d[1]);
+
+  const segments = [[]];
+  let prevXY = null;
+  for (let i = 0; i <= N; i++) {
+    const xy = proj(interp(i / N));
+    if (!xy) {
+      if (segments[segments.length - 1].length > 0) segments.push([]);
+      prevXY = null;
+      continue;
+    }
+    // Break at map-edge crossings (large x-jump means the arc left/re-entered the map).
+    if (prevXY && Math.abs(xy[0] - prevXY[0]) > halfW) segments.push([]);
+    segments[segments.length - 1].push(xy);
+    prevXY = xy;
+  }
+
+  segments.forEach(seg => {
+    if (seg.length < 2) return;
+    gProfile.append('path')
+      .attr('d', lineGen(seg))
+      .attr('fill', 'none')
+      .attr('stroke', '#ffe06088')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '6,3');
+  });
 }
 
 /** Render the pressure profile chart in #profile-panel. */
