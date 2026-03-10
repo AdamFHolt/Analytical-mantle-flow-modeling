@@ -245,10 +245,41 @@ function _interpPressure(lon, lat) {
   return (1 - ti) * ((1 - tj) * p00 + tj * p01) + ti * ((1 - tj) * p10 + tj * p11);
 }
 
+/**
+ * Returns { interp, totalKm } for the great-circle arc between p1 and p2
+ * that passes through the Pacific (the visible centre of this map).
+ * d3.geoInterpolate always takes the SHORTER arc, which may go through the
+ * Atlantic / map edges. If so, we reroute via the antipodal midpoint to
+ * force the arc across the Pacific instead.
+ */
+function _pacificInterp(p1, p2) {
+  const shortInterp = d3.geoInterpolate(p1, p2);
+  const midShort    = shortInterp(0.5);
+  // Rotated longitude: 0 = Pacific centre, ±180 = map edges (prime meridian).
+  let rotMid = midShort[0] + 180;
+  if (rotMid > 180) rotMid -= 360;
+
+  if (Math.abs(rotMid) <= 90) {
+    // Short arc already crosses the Pacific — use it directly.
+    return { interp: t => shortInterp(t), totalKm: d3.geoDistance(p1, p2) * 6371 };
+  }
+
+  // Short arc goes through the map edges (Atlantic side).
+  // Reroute via the antipodal midpoint to get the long arc across the Pacific.
+  let antLon = midShort[0] + 180;
+  if (antLon > 180) antLon -= 360;
+  const antMid  = [antLon, -midShort[1]];
+  const interp1 = d3.geoInterpolate(p1, antMid);
+  const interp2 = d3.geoInterpolate(antMid, p2);
+  return {
+    interp:  t => t < 0.5 ? interp1(t * 2) : interp2((t - 0.5) * 2),
+    totalKm: (2 * Math.PI - d3.geoDistance(p1, p2)) * 6371,
+  };
+}
+
 /** Sample pressure along the great-circle path between p1 and p2 (N+1 points). */
 function _extractProfile(p1, p2, N = 200) {
-  const interp    = d3.geoInterpolate(p1, p2);
-  const totalKm   = d3.geoDistance(p1, p2) * 6371;
+  const { interp, totalKm } = _pacificInterp(p1, p2);
   const pts = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
@@ -274,13 +305,11 @@ function _drawProfileArc() {
 
   if (_profilePts.length < 2) return;
 
-  // Sample 200 points along the great-circle and project each individually.
-  // This bypasses D3's geographic antimeridian clipping, which fires at lon ±180
-  // — the centre of this Pacific-centred map — and would split arcs there.
-  // d3.geoInterpolate always follows the shorter great-circle arc.
+  // Sample 200 points along the Pacific-crossing arc and project individually,
+  // bypassing D3's antimeridian clipping (which fires at lon ±180 = map centre).
   const N = 200;
-  const interp = d3.geoInterpolate(_profilePts[0], _profilePts[1]);
-  const halfW  = svgSize().w / 2;
+  const { interp } = _pacificInterp(_profilePts[0], _profilePts[1]);
+  const halfW   = svgSize().w / 2;
   const lineGen = d3.line().x(d => d[0]).y(d => d[1]);
 
   const segments = [[]];
@@ -292,7 +321,7 @@ function _drawProfileArc() {
       prevXY = null;
       continue;
     }
-    // Break at map-edge crossings (large x-jump means the arc left/re-entered the map).
+    // Break at map-edge crossings (large x-jump = arc crosses prime meridian).
     if (prevXY && Math.abs(xy[0] - prevXY[0]) > halfW) segments.push([]);
     segments[segments.length - 1].push(xy);
     prevXY = xy;
