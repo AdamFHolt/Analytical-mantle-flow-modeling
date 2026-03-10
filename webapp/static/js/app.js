@@ -1113,12 +1113,12 @@ function renderColorbar() {
     cbDiv.insertBefore(canvas, cbDiv.firstChild);
   }
   canvas.width = 180;
-  canvas.height = 14;
+  canvas.height = 8;
   const ctx = canvas.getContext('2d');
   for (let px = 0; px < 180; px++) {
     const p = ((px / 179) * 2 - 1) * vmax;  // -vmax → +vmax
     ctx.fillStyle = pressureToColor(p, vmax);
-    ctx.fillRect(px, 0, 1, 14);
+    ctx.fillRect(px, 0, 1, 8);
   }
 
   document.getElementById('cb-min').textContent = `${(-vmax).toFixed(1)}`;
